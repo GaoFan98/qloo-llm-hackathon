@@ -1,14 +1,14 @@
 # Qloo Taste Discovery
 
-A lean, fully-featured web app that helps users discover culturally similar places using Qloo's Taste AI™ and Google Maps data. Built for the Qloo Global Hackathon.
+A complete web app that helps users discover culturally similar places using Qloo's Taste AI™, Google Maps data, and OpenAI explanations. Built for the **Qloo Global Hackathon**.
 
 ## ✨ Features
 
 - **Free-text taste queries** - Search for places using natural language like "cozy minimalist cafes with ambient music"
-- **@ Autocomplete** - Type "@" followed by a place name for Google Places autocomplete suggestions
-- **Google Maps URL parsing** - Paste any Google Maps URL to extract place information
+- **@ Autocomplete with location bias** - Type "@" followed by a place name for Google Places autocomplete suggestions prioritized by your target city
+- **Google Maps URL parsing** - Paste any Google Maps URL (including shortened goo.gl links) to extract place information
 - **Geolocation-powered** - Automatically detects your city as the target location (editable)
-- **Smart recommendations** - Uses Qloo's Taste AI to find culturally similar places
+- **AI-generated explanations** - OpenAI creates personalized explanations for why places match your taste
 - **Beautiful UI** - Minimalistic design with dark/light theme support
 - **Share functionality** - Generate permalinks to share discoveries with friends
 - **Fully responsive** - Works perfectly on mobile and desktop
@@ -25,19 +25,16 @@ A lean, fully-featured web app that helps users discover culturally similar plac
    ```
 
 2. **Set up environment variables:**
+   Create a `.env` file with your API keys:
    ```bash
-   cp env.example .env
-   ```
+   # Qloo Hackathon API Credentials  
+   QLOO_API_KEY=ZMoLxqnSl3w1-4ZDEK6jXlYRdQ64eweO4o_VmXtATcQ1
+   QLOO_API_URL=https://hackathon.api.qloo.com
    
-   Edit `.env` with your API keys:
-   ```bash
-   # Get from https://qloo.com/developers
-   QLOO_API_KEY=your_qloo_api_key_here
-   
-   # Get from https://console.cloud.google.com/
+   # Google Maps API (required for autocomplete)
    GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
    
-   # Get from https://platform.openai.com/api-keys
+   # OpenAI API (required for explanations)
    OPENAI_API_KEY=your_openai_api_key_here
    ```
 
@@ -46,19 +43,32 @@ A lean, fully-featured web app that helps users discover culturally similar plac
    npm run dev
    ```
 
-4. **Open http://localhost:5173**
+4. **Open http://localhost:8888**
+   - Frontend runs on http://localhost:3000 (proxied)
+   - Netlify functions on http://localhost:8888
+
+## ⚡ Current Status
+
+| Feature | Status | Notes |
+|---------|--------|--------|
+| 🔍 **Free-text search** | ✅ **Working** | Uses mock Qloo data with real OpenAI explanations |
+| 📍 **@ Autocomplete** | ✅ **Working** | Real Google Places API with location bias |
+| 🗺️ **Google Maps URLs** | ✅ **Working** | Parses full URLs and shortened goo.gl links |
+| 🌍 **Geolocation** | ✅ **Working** | Auto-detects user's current city |
+| 🎨 **UI/UX** | ✅ **Working** | Dark/light themes, responsive design |
+| 🔗 **Share links** | ✅ **Working** | Permalink generation and URL state |
 
 ### Netlify Deployment
 
 1. **Connect to Netlify:**
    - Fork this repository
    - Connect your GitHub repo to Netlify
-   - Or use Netlify CLI: `netlify deploy`
+   - Set build command: `npm run build`
+   - Set publish directory: `dist`
 
 2. **Set environment variables in Netlify:**
-   - Go to your Netlify site dashboard
-   - Navigate to Site settings → Environment variables
-   - Add the same environment variables from your `.env` file
+   - Go to Site settings → Environment variables
+   - Add all environment variables from your `.env` file
 
 3. **Deploy:**
    ```bash
@@ -68,50 +78,45 @@ A lean, fully-featured web app that helps users discover culturally similar plac
 
 ## 🔑 API Keys Setup
 
-### Qloo API Key
-1. Visit [https://qloo.com/developers](https://qloo.com/developers)
-2. Sign up for a developer account
-3. Create a new API key in your dashboard
-4. Add to your environment variables
-
-### Google Maps API Key
+### Google Maps API Key ⚠️ **Required**
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select existing one
 3. Enable the following APIs:
-   - Places API
-   - Maps JavaScript API
-   - Places API (new)
+   - **Places API** (for autocomplete)
+   - **Geocoding API** (for city coordinates)  
+   - Maps JavaScript API (optional)
 4. Create credentials → API key
-5. Restrict the key to your domain for security
-6. Add to your environment variables
+5. **Restrict the key:**
+   - Application restrictions: **Websites**
+   - Website restrictions: Add:
+     ```
+     http://localhost:*
+     https://localhost:*
+     *.netlify.app/*
+     *.netlify.com/*
+     ```
+   - API restrictions: Select "Places API" and "Geocoding API"
 
-### OpenAI API Key
+### OpenAI API Key ⚠️ **Required**
 1. Visit [OpenAI Platform](https://platform.openai.com/api-keys)
-2. Sign up and add billing information
+2. Sign up and add billing information  
 3. Create a new API key
 4. Add to your environment variables
 
+### Qloo API Key ℹ️ **Already provided**
+- Hackathon credentials are pre-configured
+- Currently using mock data for development
+- Real Qloo integration ready for production
+
 ## 🧪 Testing
 
-### Run E2E Tests
-```bash
-# Open Cypress Test Runner
-npm run cypress:open
+Try these example queries:
 
-# Run tests headlessly
-npm run cypress:run
-
-# Skip API tests in CI (when no keys available)
-CYPRESS_SKIP_API_TESTS=true npm run cypress:run
-```
-
-### Test Coverage
-- UI component functionality
-- Theme switching
-- Search form validation
-- Google Maps URL parsing
-- Autocomplete behavior
-- URL sharing and permalink generation
+| Input Type | Example | Expected Result |
+|------------|---------|-----------------|
+| **Taste** | `"cozy minimalistic cafe"` | Tokyo coffee shops with AI explanations |
+| **@ Place** | `"@Starbucks"` | Autocomplete dropdown with Tokyo Starbucks |  
+| **Google URL** | `https://maps.app.goo.gl/ot3gAGzC7FLsWMkS6` | Parses to search query |
 
 ## 📁 Project Structure
 
@@ -119,86 +124,89 @@ CYPRESS_SKIP_API_TESTS=true npm run cypress:run
 qloo-taste-discovery/
 ├── src/
 │   ├── components/           # React components
-│   │   ├── InputBar.tsx     # Search input with autocomplete
-│   │   ├── ResultCard.tsx   # Place result display
-│   │   ├── SkeletonLoader.tsx # Loading state
+│   │   ├── InputBar.tsx     # Search input with autocomplete & URL parsing
+│   │   ├── ResultCard.tsx   # Place result display with images
+│   │   ├── SkeletonLoader.tsx # Loading state animation
 │   │   └── ShareButton.tsx  # Share functionality
 │   ├── hooks/               # Custom React hooks
-│   │   ├── usePlacesAutocomplete.ts # Google Places integration
-│   │   └── useQueryParam.ts # URL state management
+│   │   ├── usePlacesAutocomplete.ts # Google Places with location bias
+│   │   ├── useQueryParam.ts # URL state management  
+│   │   └── useDebounce.ts   # API call optimization
 │   ├── types/               # TypeScript definitions
-│   └── App.tsx              # Main application
+│   └── App.tsx              # Main application with geolocation
 ├── netlify/functions/       # Serverless backend
-│   ├── qloo.ts             # Qloo API integration
-│   └── parsePlace.ts       # Google Maps URL parsing
-├── cypress/e2e/            # End-to-end tests
+│   ├── qloo.ts             # Qloo API integration + OpenAI explanations
+│   └── parsePlace.ts       # Google Maps URL parsing + autocomplete
+├── netlify.toml            # Netlify configuration
 └── public/                 # Static assets
 ```
 
 ## 🎯 How It Works
 
-1. **Text Query Flow:**
-   - User enters free-text query like "cozy minimalist cafes"
-   - Backend calls Qloo `/v1/taste/extract` to get taste vector
-   - Uses taste vector with `/v1/places/recommendations` to find similar places
-   - OpenAI generates explanations for why places are similar
+### 1. **Location-Aware Autocomplete:**
+   - User types "@Starbucks" in Tokyo
+   - App geocodes Tokyo → (35.6764, 139.6500)
+   - Google Places API prioritizes Tokyo results
+   - Shows: "STARBUCKS RESERVE ROASTERY TOKYO" first
 
-2. **Place Query Flow:**
-   - User types "@" + place name or pastes Google Maps URL
-   - Google Places Autocomplete suggests matching places
-   - Backend calls Qloo `/v1/places/similar` with place ID
-   - Returns culturally similar places in target city
+### 2. **Smart URL Parsing:**
+   - Handles full Google Maps URLs with place_id
+   - Parses /place/ URLs to extract place names
+   - Resolves shortened goo.gl links
+   - Extracts query parameters automatically
 
-3. **Smart Features:**
-   - Geolocation auto-fills target city
-   - Google Maps URL parsing extracts place information
-   - Image handling prioritizes Qloo images, falls back to Google Photos
-   - OpenAI explanations are cached to avoid duplicate API calls
+### 3. **AI-Powered Explanations:**
+   - User searches "cozy minimalistic cafe"  
+   - OpenAI generates: *"Blue Bottle Coffee emphasizes a minimalist aesthetic, creating a calm atmosphere..."*
+   - Explanations cached to avoid duplicate API calls
+
+### 4. **Geolocation Integration:**
+   - Auto-detects user's city via browser geolocation
+   - Falls back to manual city input
+   - All searches biased toward target city
 
 ## 🎨 Demo Recording Tips
 
-For hackathon submission videos:
+Perfect for hackathon submission videos:
 
-1. **Show the complete flow:**
-   - Start with a text query like "vintage bookstores with coffee"
-   - Demonstrate city auto-detection
-   - Show the results with images and explanations
+1. **Show location bias in action:**
+   - Set city to "Tokyo" → search "@Starbucks" → see Tokyo results
+   - Change to "London" → search "@Starbucks" → see London results
 
-2. **Highlight unique features:**
-   - Paste a Google Maps URL to show parsing
-   - Use @ autocomplete for place search
-   - Share a permalink and open it in new tab
-   - Toggle dark/light theme
+2. **Demonstrate URL parsing:**
+   - Copy any Google Maps link
+   - Paste into search → watch it parse automatically
+   - Try shortened goo.gl links
 
-3. **Mobile responsiveness:**
-   - Show the app working on mobile device
-   - Demonstrate touch interactions
+3. **Highlight AI explanations:**
+   - Search "vintage bookstores with coffee"
+   - Show unique AI-generated explanations for each result
+   - Compare explanations between different queries
 
 ## 🏗️ Tech Stack
 
 - **Frontend:** Vite + React + TypeScript + TailwindCSS
-- **Backend:** Netlify Functions (serverless)
-- **APIs:** Qloo Taste AI, Google Maps/Places, OpenAI
-- **Testing:** Cypress E2E
-- **Deployment:** Netlify
-- **Styling:** TailwindCSS with dark/light theme
+- **Backend:** Netlify Functions (Node.js serverless)
+- **APIs:** Google Maps/Places (geocoding + autocomplete), OpenAI GPT-3.5-turbo
+- **State:** URL-based state management with custom hooks
+- **Deployment:** Netlify with environment variables
+- **Styling:** TailwindCSS with system dark/light theme detection
 
-## 📈 Performance
+## 📈 Performance Features
 
-- **Bundle size:** Optimized with code splitting
-- **Time-to-first-byte:** < 200ms on Netlify edge
-- **Google Maps:** Lazy loaded only when needed
-- **API caching:** OpenAI responses cached in memory
-- **Responsive images:** Optimized photo loading
+- **Location-biased search** - Results prioritized by target city coordinates
+- **API response caching** - OpenAI explanations cached in memory  
+- **Debounced autocomplete** - Prevents excessive API calls while typing
+- **Lazy loading** - Images and components loaded on demand
+- **Error boundaries** - Graceful fallbacks for API failures
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Run tests: `npm run cypress:run`
-5. Format code: `npm run format`
-6. Submit a pull request
+3. Set up API keys in your `.env` file
+4. Test locally with `npm run dev`
+5. Submit a pull request
 
 ## 📄 License
 
