@@ -37,6 +37,24 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
     }
   }, [isPlaceSearch, searchTerm, city, fetchSuggestions, clearSuggestions])
 
+  // Debug: Track query changes
+  useEffect(() => {
+    console.log('🔍 Query state changed to:', query)
+  }, [query])
+
+  // Debug: Track suggestions rendering
+  useEffect(() => {
+    if (showSuggestions && isPlaceSearch) {
+      if (suggestionsLoading) {
+        console.log('🔍 === SHOWING LOADING STATE ===')
+      } else if (suggestions.length > 0) {
+        console.log('🔍 === RENDERING SUGGESTIONS ===', suggestions.length, 'suggestions:', suggestions)
+      } else if (searchTerm.length > 1) {
+        console.log('🔍 === NO SUGGESTIONS FOUND ===', 'searchTerm:', searchTerm)
+      }
+    }
+  }, [showSuggestions, isPlaceSearch, suggestionsLoading, suggestions, searchTerm])
+
   const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setQuery(value)
@@ -84,23 +102,39 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
   }
 
   const handleSuggestionClick = (suggestion: any) => {
-    // Debug: Log the suggestion object to see its structure
-    console.log('🔍 Clicked suggestion:', suggestion)
-    console.log('🔍 Main text:', suggestion.structured_formatting?.main_text)
-    console.log('🔍 Description:', suggestion.description)
+    console.log('🔍 === SUGGESTION CLICK DEBUG START ===')
+    console.log('🔍 Current query before click:', query)
+    console.log('🔍 isPlaceSearch:', isPlaceSearch)
+    console.log('🔍 searchTerm:', searchTerm)
+    console.log('🔍 Clicked suggestion object:', JSON.stringify(suggestion, null, 2))
+    console.log('🔍 Suggestion structured_formatting:', suggestion.structured_formatting)
+    console.log('🔍 Suggestion description:', suggestion.description)
+    console.log('🔍 Suggestion place_id:', suggestion.place_id)
     
-    // For Google Places, description contains the full place name with location
-    // We want just the place name part, not the full address
-    let placeName = suggestion.description || suggestion.structured_formatting?.main_text || 'Selected place'
+    // Prioritize structured_formatting.main_text as it contains just the business name
+    // Description contains the full address which we don't want
+    let placeName = suggestion.structured_formatting?.main_text || suggestion.description || 'Selected place'
+    console.log('🔍 Initial placeName extracted:', placeName)
     
-    // If description has a comma, take only the part before the first comma (place name)
-    if (placeName.includes(',')) {
+    // If we got the description instead and it has a comma, take only the part before the first comma
+    if (placeName === suggestion.description && placeName.includes(',')) {
+      const originalPlaceName = placeName
       placeName = placeName.split(',')[0].trim()
+      console.log('🔍 Trimmed placeName from:', originalPlaceName, 'to:', placeName)
     }
     
-    console.log('🔍 Setting query to:', placeName)
+    console.log('🔍 Final place name to set:', placeName)
+    
+    // Set the place name without @ prefix so user can directly search
+    console.log('🔍 About to call setQuery with:', placeName)
     setQuery(placeName)
+    console.log('🔍 setQuery called, new query should be:', placeName)
+    
+    console.log('🔍 About to hide suggestions')
     setShowSuggestions(false)
+    console.log('🔍 Suggestions hidden')
+    
+    console.log('🔍 === SUGGESTION CLICK DEBUG END ===')
     // Don't immediately search - let user click Search button or press Enter
     // This is more intuitive UX behavior for autocomplete
   }
@@ -120,7 +154,7 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
     }
   }
 
-  const handleKeyDown = (e: React.KeyEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       setShowSuggestions(false)
     }
@@ -130,7 +164,11 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (inputRef.current && !inputRef.current.contains(event.target as Node)) {
-        setShowSuggestions(false)
+        // Check if the click was on a suggestion button
+        const target = event.target as Element
+        if (!target.closest('[data-suggestion-button]')) {
+          setShowSuggestions(false)
+        }
       }
     }
 
@@ -189,7 +227,17 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
             suggestions.map((suggestion, index) => (
               <button
                 key={suggestion.place_id || index}
-                onClick={() => handleSuggestionClick(suggestion)}
+                data-suggestion-button="true"
+                onClick={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  console.log('🔍 === BUTTON CLICKED ===')
+                  handleSuggestionClick(suggestion)
+                }}
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  console.log('🔍 === BUTTON MOUSE DOWN ===')
+                }}
                 className="w-full text-left p-3 hover:bg-gray-100 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-600 last:border-b-0 transition-colors"
               >
                 <div className="font-medium text-gray-900 dark:text-white">
