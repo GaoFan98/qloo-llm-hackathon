@@ -4,7 +4,6 @@ import ResultCard from './components/ResultCard'
 import SkeletonLoader from './components/SkeletonLoader'
 import ShareButton from './components/ShareButton'
 import { useQueryParam } from './hooks/useQueryParam'
-import { useDebounce } from './hooks/useDebounce'
 import { Place } from './types'
 
 function App() {

@@ -1,17 +1,18 @@
 [build]
-  publish = "dist"
   command = "npm run build"
+  functions = "netlify/functions"
+  publish = "dist"
 
 [functions]
-  directory = "netlify/functions"
-
-[dev]
-  command = "npm run dev:vite"
-  targetPort = 3000
-  port = 8888
-  publish = "dist"
+  node_bundler = "esbuild"
 
 [[redirects]]
   from = "/*"
   to = "/index.html"
-  status = 200 
+  status = 200
+
+[dev]
+  command = "npm run dev:vite"
+  port = 3000
+  targetPort = 8888
+  framework = "#custom" 
