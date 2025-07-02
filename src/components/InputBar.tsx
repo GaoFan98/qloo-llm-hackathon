@@ -37,74 +37,72 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
     }
   }, [isPlaceSearch, searchTerm, city, fetchSuggestions, clearSuggestions])
 
-  // Parse Google Maps URLs
-  const parseGoogleMapsUrl = (url: string): { placeId?: string, query?: string, type?: string } | null => {
-    try {
-      const urlObj = new URL(url)
-      
-      // Handle shortened goo.gl URLs - these are valid and should be accepted
-      if (urlObj.hostname.includes('goo.gl') || urlObj.hostname.includes('maps.app.goo.gl')) {
-        return { type: 'shortened', query: 'location from Google Maps' }
-      }
-      
-      // Check for various Google Maps URL formats
-      if (urlObj.hostname.includes('maps.google') || urlObj.hostname.includes('google.com/maps')) {
-        // Extract place_id from URL params
-        const placeId = urlObj.searchParams.get('place_id')
-        if (placeId) {
-          return { placeId, type: 'place_id' }
-        }
-        
-        // Extract from path for /place/ URLs
-        const pathMatch = urlObj.pathname.match(/\/place\/([^\/]+)/)
-        if (pathMatch) {
-          const placeName = decodeURIComponent(pathMatch[1].replace(/\+/g, ' '))
-          return { query: placeName, type: 'query' }
-        }
-        
-        // Extract from search params
-        const q = urlObj.searchParams.get('q')
-        if (q) {
-          return { query: q, type: 'query' }
-        }
-        
-        // Generic maps URL
-        return { query: 'location from Google Maps', type: 'maps_url' }
-      }
-      
-      return null
-    } catch {
-      return null
-    }
-  }
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value
     setQuery(value)
     setUrlParseError(null)
     
     // Check if it's a Google Maps URL
     if (value.includes('maps.google') || value.includes('goo.gl') || value.includes('maps.app.goo.gl')) {
-      const parsed = parseGoogleMapsUrl(value)
-      if (parsed) {
-        // Successfully detected URL (including shortened ones)
-        if (parsed.placeId) {
-          setQuery(`@${parsed.placeId}`)
-        } else if (parsed.query) {
-          setQuery(parsed.query)
+      try {
+        // Use backend to parse the URL (especially important for shortened URLs)
+        const response = await fetch('http://localhost:8888/.netlify/functions/parsePlace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            type: 'parse',
+            url: value
+          })
+        })
+        
+        if (response.ok) {
+          const parsed = await response.json()
+          console.log('🔗 Parsed URL result:', parsed)
+          
+          if (parsed.query && parsed.query !== 'Google Maps location') {
+            // Successfully extracted place name from URL
+            setQuery(parsed.query)
+            console.log(`✅ URL parsed to: ${parsed.query}`)
+          } else if (parsed.place_id) {
+            // Got a place ID, convert to @ search
+            setQuery(`@${parsed.place_id}`)
+            console.log(`✅ URL parsed to place ID: ${parsed.place_id}`)
+          } else {
+            // URL was recognized but couldn't extract specific place info
+            console.log('⚠️ URL recognized but no specific place extracted')
+            setUrlParseError('Could not extract place information from URL')
+          }
+        } else {
+          console.log('❌ Failed to parse URL via backend')
+          setUrlParseError('Unable to parse Google Maps URL')
         }
-        setUrlParseError(null)
-      } else {
+      } catch (error) {
+        console.log('❌ URL parsing error:', error)
         setUrlParseError('Unable to parse Google Maps URL')
       }
     }
   }
 
   const handleSuggestionClick = (suggestion: any) => {
-    setQuery(`@${suggestion.place_id}`)
+    // Debug: Log the suggestion object to see its structure
+    console.log('🔍 Clicked suggestion:', suggestion)
+    console.log('🔍 Main text:', suggestion.structured_formatting?.main_text)
+    console.log('🔍 Description:', suggestion.description)
+    
+    // For Google Places, description contains the full place name with location
+    // We want just the place name part, not the full address
+    let placeName = suggestion.description || suggestion.structured_formatting?.main_text || 'Selected place'
+    
+    // If description has a comma, take only the part before the first comma (place name)
+    if (placeName.includes(',')) {
+      placeName = placeName.split(',')[0].trim()
+    }
+    
+    console.log('🔍 Setting query to:', placeName)
+    setQuery(placeName)
     setShowSuggestions(false)
-    // Immediately trigger search with the selected place
-    onSearch(suggestion.place_id, true)
+    // Don't immediately search - let user click Search button or press Enter
+    // This is more intuitive UX behavior for autocomplete
   }
 
   const handleSubmit = (e: React.FormEvent) => {

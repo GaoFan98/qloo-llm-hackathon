@@ -366,7 +366,7 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<
       try {
         // Search for the place using Google Places Text Search
         const searchQuery = `${place.name} ${city}`
-        const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&key=${process.env.GOOGLE_MAPS_API_KEY}`
+        const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos&key=${process.env.GOOGLE_MAPS_API_KEY}`
         
         console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
         
@@ -385,11 +385,20 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<
               console.log(`📸 Found real photo for ${place.name}`)
             }
             
-            // Get real address
+            // Get real address and rating
             const realAddress = googlePlace.formatted_address || place.address
-            const realRating = googlePlace.rating || place.rating || 4.5
+            const googleRating = googlePlace.rating
+            const ratingCount = googlePlace.user_ratings_total
+            const realRating = googleRating || place.rating || 4.5
             
-            console.log(`✅ Enriched ${place.name} with Google data`)
+            // Enhanced logging for ratings
+            if (googleRating) {
+              console.log(`⭐ ${place.name}: Google rating ${googleRating} (${ratingCount || 'unknown'} reviews)`)
+            } else {
+              console.log(`⚠️ ${place.name}: No Google rating, using fallback ${realRating}`)
+            }
+            
+            console.log(`✅ Enriched ${place.name} with Google data (Rating: ${realRating})`)
             
             return {
               id: place.id || `enriched-${index}`,
