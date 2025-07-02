@@ -22,8 +22,14 @@ export const usePlacesAutocomplete = () => {
     setIsLoading(true)
     
     try {
+      // Use relative path for Netlify functions in production, localhost for development
+      const isDev = typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+      const endpoint = isDev 
+        ? 'http://localhost:8888/.netlify/functions/parsePlace'
+        : '/.netlify/functions/parsePlace'
+      
       // Use the parsePlace function to get autocomplete suggestions
-      const response = await fetch('http://localhost:8888/.netlify/functions/parsePlace', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

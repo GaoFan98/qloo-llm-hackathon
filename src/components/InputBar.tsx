@@ -63,8 +63,14 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
     // Check if it's a Google Maps URL
     if (value.includes('maps.google') || value.includes('goo.gl') || value.includes('maps.app.goo.gl')) {
       try {
+        // Use relative path for Netlify functions in production, localhost for development
+        const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+        const endpoint = isDev 
+          ? 'http://localhost:8888/.netlify/functions/parsePlace'
+          : '/.netlify/functions/parsePlace'
+        
         // Use backend to parse the URL (especially important for shortened URLs)
-        const response = await fetch('http://localhost:8888/.netlify/functions/parsePlace', {
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ 

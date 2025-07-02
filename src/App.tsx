@@ -67,8 +67,12 @@ function App() {
     setPlaces([])
 
     try {
-      // Use port 8888 where Netlify Dev is running
-      const endpoint = 'http://localhost:8888/.netlify/functions/qloo'
+      // Use relative path for Netlify functions in production, localhost for development
+      const isDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+      const endpoint = isDev 
+        ? 'http://localhost:8888/.netlify/functions/qloo'
+        : '/.netlify/functions/qloo'
+      
       const body = isPlaceId 
         ? { type: 'similar', place_id: searchQuery, city, limit: 10 }
         : { type: 'taste', query: searchQuery, city, limit: 10 }
