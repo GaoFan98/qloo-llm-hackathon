@@ -24,7 +24,7 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
   const [isLoaded, setIsLoaded] = useState(false)
   const [isMapReady, setIsMapReady] = useState(false)
   const [selectedPlaceCard, setSelectedPlaceCard] = useState<Place | null>(null)
-  const [cardPosition, setCardPosition] = useState<{ x: number, y: number } | null>(null)
+  const [cardPosition, setCardPosition] = useState<{ x: number, y: number, arrow?: string } | null>(null)
 
   // Fallback coordinates for major cities
   const getCityFallbackCoords = (cityName: string) => {
@@ -219,16 +219,81 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
           // In full map view, show custom card overlay
           setSelectedPlaceCard(place)
           
-          // Simple positioning - try to position card near the center-right of the map
+          // Smart positioning based on available space around the marker
           const mapContainer = mapRef.current
           if (mapContainer) {
             const containerRect = mapContainer.getBoundingClientRect()
             
-            // Position card in the right side of the map, vertically centered
-            setCardPosition({
-              x: Math.max(20, containerRect.width - 340), // 20px from right edge (320px card + 20px margin)
-              y: Math.max(20, (containerRect.height - 300) / 2) // Vertically centered
-            })
+            // Get marker position in screen coordinates
+            const projection = mapInstanceRef.current.getProjection()
+            const bounds = mapInstanceRef.current.getBounds()
+            
+            if (projection && bounds) {
+              const markerLatLng = marker.getPosition()
+              const ne = bounds.getNorthEast()
+              const sw = bounds.getSouthWest()
+              
+              // Calculate marker position as percentage of map dimensions
+              const latRange = ne.lat() - sw.lat()
+              const lngRange = ne.lng() - sw.lng()
+              
+              const markerLat = markerLatLng.lat()
+              const markerLng = markerLatLng.lng()
+              
+              const xPercent = (markerLng - sw.lng()) / lngRange
+              const yPercent = (ne.lat() - markerLat) / latRange // Flip Y coordinate
+              
+              const markerX = xPercent * containerRect.width
+              const markerY = yPercent * containerRect.height
+              
+              // Card dimensions (smaller size)
+              const cardWidth = 280
+              const cardHeight = 220
+              const margin = 16
+              
+              // Calculate available space in each direction
+              const spaceRight = containerRect.width - markerX - margin
+              const spaceLeft = markerX - margin
+              const spaceBottom = containerRect.height - markerY - margin
+              const spaceTop = markerY - margin
+              
+              let cardX, cardY, arrowClass = ''
+              
+              if (spaceRight >= cardWidth) {
+                // Position to the right of marker
+                cardX = markerX + 20
+                cardY = Math.max(margin, Math.min(markerY - cardHeight / 2, containerRect.height - cardHeight - margin))
+                arrowClass = 'left-arrow'
+              } else if (spaceLeft >= cardWidth) {
+                // Position to the left of marker
+                cardX = markerX - cardWidth - 20
+                cardY = Math.max(margin, Math.min(markerY - cardHeight / 2, containerRect.height - cardHeight - margin))
+                arrowClass = 'right-arrow'
+              } else if (spaceBottom >= cardHeight) {
+                // Position below marker
+                cardX = Math.max(margin, Math.min(markerX - cardWidth / 2, containerRect.width - cardWidth - margin))
+                cardY = markerY + 20
+                arrowClass = 'top-arrow'
+              } else if (spaceTop >= cardHeight) {
+                // Position above marker
+                cardX = Math.max(margin, Math.min(markerX - cardWidth / 2, containerRect.width - cardWidth - margin))
+                cardY = markerY - cardHeight - 20
+                arrowClass = 'bottom-arrow'
+              } else {
+                // Fallback: position in the corner with most space
+                if (spaceRight + spaceBottom > spaceLeft + spaceTop) {
+                  cardX = Math.max(margin, containerRect.width - cardWidth - margin)
+                  cardY = Math.max(margin, containerRect.height - cardHeight - margin)
+                  arrowClass = 'no-arrow'
+                } else {
+                  cardX = margin
+                  cardY = margin
+                  arrowClass = 'no-arrow'
+                }
+              }
+              
+              setCardPosition({ x: cardX, y: cardY, arrow: arrowClass })
+            }
           }
         } else {
           // In split view, use the existing info window behavior
@@ -477,20 +542,41 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
           {/* Backdrop overlay */}
           <div 
             className="absolute inset-0 bg-black bg-opacity-20 z-40 transition-opacity duration-300"
-            onClick={() => setSelectedPlaceCard(null)}
+            onClick={() => {
+              setSelectedPlaceCard(null)
+              setCardPosition(null)
+            }}
           />
           
           <div 
-            className="absolute z-50 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden transform transition-all duration-500 ease-out animate-in slide-in-from-right-5 fade-in"
+            className={`absolute z-50 bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden transform transition-all duration-500 ease-out animate-in slide-in-from-right-5 fade-in ${cardPosition.arrow || ''}`}
             style={{
               left: cardPosition.x,
               top: cardPosition.y,
+              width: '280px'
             }}
           >
+            {/* Arrow Pointer */}
+            {cardPosition.arrow && cardPosition.arrow !== 'no-arrow' && (
+              <div 
+                className={`absolute w-0 h-0 border-solid ${
+                  cardPosition.arrow === 'left-arrow' ? 
+                    '-left-2 top-1/2 -translate-y-1/2 border-r-8 border-r-white dark:border-r-gray-800 border-t-8 border-t-transparent border-b-8 border-b-transparent' :
+                  cardPosition.arrow === 'right-arrow' ? 
+                    '-right-2 top-1/2 -translate-y-1/2 border-l-8 border-l-white dark:border-l-gray-800 border-t-8 border-t-transparent border-b-8 border-b-transparent' :
+                  cardPosition.arrow === 'top-arrow' ? 
+                    'left-1/2 -translate-x-1/2 -top-2 border-b-8 border-b-white dark:border-b-gray-800 border-l-8 border-l-transparent border-r-8 border-r-transparent' :
+                  cardPosition.arrow === 'bottom-arrow' ? 
+                    'left-1/2 -translate-x-1/2 -bottom-2 border-t-8 border-t-white dark:border-t-gray-800 border-l-8 border-l-transparent border-r-8 border-r-transparent' :
+                    ''
+                }`}
+              />
+            )}
+            
             {/* Card Header with Close Button */}
             <div className="relative">
               {selectedPlaceCard.image && (
-                <div className="h-48 w-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                <div className="h-32 w-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
                   <img 
                     src={selectedPlaceCard.image} 
                     alt={selectedPlaceCard.name}
@@ -504,33 +590,36 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
               
               {/* Close Button */}
               <button
-                onClick={() => setSelectedPlaceCard(null)}
-                className="absolute top-3 right-3 w-8 h-8 bg-white dark:bg-gray-800 bg-opacity-95 hover:bg-opacity-100 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 border border-gray-200 dark:border-gray-600"
+                onClick={() => {
+                  setSelectedPlaceCard(null)
+                  setCardPosition(null)
+                }}
+                className="absolute top-2 right-2 w-7 h-7 bg-white dark:bg-gray-800 bg-opacity-95 hover:bg-opacity-100 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 border border-gray-200 dark:border-gray-600"
               >
-                <svg className="w-4 h-4 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
             </div>
 
             {/* Card Content */}
-            <div className="p-4">
+            <div className="p-3">
               {/* Title and Rating */}
-              <div className="mb-3">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white leading-tight mb-2">
+              <div className="mb-2">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white leading-tight mb-1 line-clamp-1">
                   {selectedPlaceCard.name}
                 </h3>
                 
                 {selectedPlaceCard.rating && (
                   <div className="flex items-center">
-                    <svg className="w-4 h-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                    <svg className="w-3.5 h-3.5 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
                       <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
                     </svg>
                     <span className="text-sm font-medium text-gray-900 dark:text-white">
                       {selectedPlaceCard.rating.toFixed(1)}
                     </span>
                     {selectedPlaceCard.reviewCount && (
-                      <span className="text-sm text-gray-500 dark:text-gray-400 ml-1">
+                      <span className="text-xs text-gray-500 dark:text-gray-400 ml-1">
                         ({selectedPlaceCard.reviewCount.toLocaleString()})
                       </span>
                     )}
@@ -540,9 +629,9 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
 
               {/* Short Description */}
               {selectedPlaceCard.explanation && (
-                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed mb-4 line-clamp-3">
-                  {selectedPlaceCard.explanation.length > 100 
-                    ? selectedPlaceCard.explanation.substring(0, 100) + '...' 
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed mb-3 line-clamp-2">
+                  {selectedPlaceCard.explanation.length > 80 
+                    ? selectedPlaceCard.explanation.substring(0, 80) + '...' 
                     : selectedPlaceCard.explanation
                   }
                 </p>
@@ -556,9 +645,9 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
                     '_blank'
                   )
                 }}
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center shadow-lg hover:shadow-xl"
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-3 py-2 rounded-lg transition-colors flex items-center justify-center shadow-lg hover:shadow-xl"
               >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
