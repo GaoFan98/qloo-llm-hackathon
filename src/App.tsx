@@ -5,7 +5,6 @@ import SkeletonLoader from './components/SkeletonLoader'
 import ShareButton from './components/ShareButton'
 import ViewToggle, { ViewMode } from './components/ViewToggle'
 import MapView from './components/MapView'
-import ResizablePanel from './components/ResizablePanel'
 import { useQueryParam } from './hooks/useQueryParam'
 import { Place } from './types'
 
@@ -323,7 +322,18 @@ function App() {
           <div className="flex-1 min-h-0">
             {/* LIST VIEW - Infinite scroll with proper background */}
             {viewMode === 'list' && (
-              <div className="h-full bg-gray-50 dark:bg-gray-900 -mx-4 -mb-8 px-4 pb-8">
+              <div 
+                className="bg-gray-50 dark:bg-gray-900 pb-24" 
+                style={{ 
+                  minHeight: 'max(100vh, 200vh, 100%)',
+                  marginLeft: 'calc(-50vw + 50%)',
+                  marginRight: 'calc(-50vw + 50%)',
+                  paddingLeft: 'calc(50vw - 50% + 2rem)',
+                  paddingRight: 'calc(50vw - 50% + 2rem)',
+                  marginBottom: '-2rem',
+                  overflowX: 'hidden'
+                }}
+              >
                 {renderResultsList()}
               </div>
             )}
