@@ -2,9 +2,12 @@ import { Place } from '../types'
 
 interface ResultCardProps {
   place: Place
+  isSelected?: boolean
+  onHover?: (placeId: string | null) => void
+  onSelect?: (place: Place) => void
 }
 
-export default function ResultCard({ place }: ResultCardProps) {
+export default function ResultCard({ place, isSelected = false, onHover, onSelect }: ResultCardProps) {
   const handleCardClick = () => {
     // Create Google Maps search URL using place name and address
     const searchQuery = `${place.name} ${place.address}`.trim()
@@ -15,19 +18,52 @@ export default function ResultCard({ place }: ResultCardProps) {
     window.open(googleMapsUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const handleCardHover = () => {
+    if (onHover) {
+      onHover(place.id)
+    }
+  }
+
+  const handleCardLeave = () => {
+    if (onHover) {
+      onHover(null)
+    }
+  }
+
+  const handleCardSelect = (e: React.MouseEvent) => {
+    // Only trigger selection if not clicking the external link or other interactive elements
+    if (onSelect && !e.defaultPrevented) {
+      e.preventDefault()
+      onSelect(place)
+    } else if (!onSelect) {
+      // If no onSelect handler (list view), open Google Maps
+      handleCardClick()
+    }
+  }
+
   return (
     <div 
-      className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all duration-200 cursor-pointer hover:scale-[1.02] active:scale-[0.98] h-[450px] flex flex-col"
-      onClick={handleCardClick}
+      className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border overflow-hidden transition-all duration-200 cursor-pointer h-[450px] flex flex-col ${
+        isSelected 
+          ? 'border-blue-500 shadow-lg ring-2 ring-blue-200 dark:ring-blue-800' 
+          : 'border-gray-200 dark:border-gray-700 hover:shadow-md hover:scale-[1.02]'
+      } active:scale-[0.98]`}
+      onClick={handleCardSelect}
+      onMouseEnter={handleCardHover}
+      onMouseLeave={handleCardLeave}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault()
-          handleCardClick()
+          if (onSelect) {
+            onSelect(place)
+          } else {
+            handleCardClick()
+          }
         }
       }}
-      aria-label={`View ${place.name} on Google Maps`}
+      aria-label={`${isSelected ? 'Selected: ' : ''}${place.name}`}
     >
       {/* Fixed Image Section - 180px height */}
       {place.image && (
@@ -52,9 +88,19 @@ export default function ResultCard({ place }: ResultCardProps) {
             {place.name}
           </h3>
           <div className="flex-shrink-0 ml-2 mt-1">
-            <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-            </svg>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                e.preventDefault()
+                handleCardClick()
+              }}
+              className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              aria-label="Open in Google Maps"
+            >
+              <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </button>
           </div>
         </div>
         
@@ -104,12 +150,18 @@ export default function ResultCard({ place }: ResultCardProps) {
           
           {/* Click hint - Fixed height */}
           <div className="pt-2 border-t border-gray-100 dark:border-gray-700 h-[32px]">
-            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+            <p 
+              className="text-xs text-gray-500 dark:text-gray-400 flex items-center cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                handleCardClick()
+              }}
+            >
               <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              Click to view on Google Maps
+              {onSelect ? 'Click to select or view on map' : 'Click to view on Google Maps'}
             </p>
           </div>
         </div>
