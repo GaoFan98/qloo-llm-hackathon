@@ -47,4 +47,12 @@ export interface SearchParams {
   query: string
   city: string
   isPlaceId: boolean
+}
+
+export interface ApiResponse {
+  places: Place[]
+  query: string
+  city: string
+  source: string
+  explanation?: string
 } 

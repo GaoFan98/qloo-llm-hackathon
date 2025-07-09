@@ -140,7 +140,7 @@ function convertQlooResponse(qlooData: any, query: string, city: string) {
     address: entity.properties?.address || entity.disambiguation || `${city}`,
     rating: entity.properties?.business_rating || 4.5,
     image: entity.properties?.image?.url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
-    explanation: `Recommended by Qloo's Taste AI™ based on "${query}". ${entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.'}`,
+    explanation: entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.',
     originalQuery: query // Pass the original query for better processing
   }))
 }
@@ -221,7 +221,7 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
           console.log(`✅ OpenAI generated ${places.length} raw places successfully`)
           
           // Enrich with real Google Places data (photos and addresses)
-          const enrichedPlaces = await enrichPlacesWithGoogleData(places.slice(0, limit), city)
+          const enrichedPlaces = await enrichPlacesWithGoogleData(places.slice(0, limit), city, limit)
           
           // Add original query to each place
           const placesWithQuery = enrichedPlaces.map(place => ({
@@ -244,7 +244,7 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
         if (manualPlaces.length > 0) {
           console.log(`🔧 Manually extracted ${manualPlaces.length} places`)
           // Enrich manual places too
-          const enrichedManualPlaces = await enrichPlacesWithGoogleData(manualPlaces, city)
+          const enrichedManualPlaces = await enrichPlacesWithGoogleData(manualPlaces, city, limit)
           const manualPlacesWithQuery = enrichedManualPlaces.map(place => ({
             ...place,
             originalQuery: query
@@ -364,10 +364,10 @@ const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPl
 }
 
 // Enrich places with real Google Places data (photos and addresses)
-const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<QlooPlace[]> => {
+const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResults: number = 50): Promise<QlooPlace[]> => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
     console.log('⚠️ Google Maps API key not available, using generated data as-is')
-    return places.map((place, index) => ({
+    return places.slice(0, maxResults).map((place, index) => ({
       id: place.id || `openai-${index}`,
       name: place.name,
       address: place.address,
@@ -381,10 +381,10 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<
   console.log(`🌍 Enriching ${places.length} places with Google Places data...`)
 
   const validatedPlaces: QlooPlace[] = []
-  const maxPlacesToCheck = Math.min(places.length, 10) // Limit to prevent timeouts
-  const targetPlaces = 3 // Stop when we have enough places
+  const maxPlacesToCheck = Math.min(places.length, 50) // Check up to 50 places to avoid timeouts
+  const targetPlaces = maxResults // Use the requested limit, but don't stop early
 
-  for (let index = 0; index < maxPlacesToCheck && validatedPlaces.length < targetPlaces; index++) {
+  for (let index = 0; index < maxPlacesToCheck; index++) {
     const place = places[index]
     
     try {
@@ -457,33 +457,30 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<
     }
   }
 
-  // Step 4: If we don't have enough validated places, fill with OpenAI-generated places
-  if (validatedPlaces.length < targetPlaces) {
-    console.log(`⚠️ Only found ${validatedPlaces.length} validated places in ${city}, generating additional places with OpenAI`)
+  // Step 4: If we don't have any validated places, fill with OpenAI-generated places
+  if (validatedPlaces.length === 0) {
+    console.log(`⚠️ Found 0 validated places in ${city}, generating places with OpenAI`)
     
-    const additionalNeeded = targetPlaces - validatedPlaces.length
     try {
       const openaiPlaces = await generatePlacesWithOpenAI(
         places[0]?.originalQuery || 'restaurants', 
         city, 
-        additionalNeeded
+        Math.min(maxResults, 10) // Keep OpenAI reasonable
       )
       validatedPlaces.push(...openaiPlaces)
     } catch (error) {
       console.log(`❌ OpenAI fallback failed, using hardcoded places`)
       const hardcodedPlaces = getHardcodedPlaces(city, places[0]?.originalQuery || 'restaurants')
-      validatedPlaces.push(...hardcodedPlaces.slice(0, additionalNeeded))
+      validatedPlaces.push(...hardcodedPlaces.slice(0, 3))
     }
   }
 
-  return validatedPlaces.slice(0, targetPlaces) // Ensure we don't return more than needed
+  console.log(`🎯 Returning ${validatedPlaces.length} enriched places (requested: ${maxResults})`)
+  return validatedPlaces // Return all validated places, no slicing
 }
 
 // Generate better explanations using OpenAI
 const generateExplanation = async (originalQuery: string, place: any): Promise<string> => {
-  // If explanation already exists and mentions Qloo, enhance it with OpenAI
-  const hasQlooExplanation = place.explanation?.includes("Qloo's Taste AI™")
-
   const cacheKey = `${originalQuery}-${place.name}-enhanced`
   
   if (explanationCache.has(cacheKey)) {
@@ -493,7 +490,7 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
 
   // Skip OpenAI if no API key
   if (!process.env.OPENAI_API_KEY) {
-    return place.explanation || 'Culturally similar place with matching vibe and atmosphere.'
+    return place.explanation || `Perfect for someone seeking "${originalQuery}" with its authentic flavors and welcoming atmosphere.`
   }
 
   console.log(`🤖 Generating enhanced explanation for ${place.name}`)
@@ -510,11 +507,11 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
         messages: [
           {
             role: 'system',
-            content: `You are a local food expert. Generate a personalized explanation (1-2 sentences) for why this place matches the user's taste query. Focus on atmosphere, style, cuisine type, and cultural elements. Be specific and engaging.`
+            content: `You are a local food expert. Generate a personalized explanation (1-2 sentences) for why this place matches the user's taste query. Focus on specific aspects like cuisine type, atmosphere, cultural elements, ingredients, cooking style, or dining experience that align with their preferences. Be specific and engaging, avoiding generic phrases.`
           },
           {
             role: 'user',
-            content: `Why would someone who wants "${originalQuery}" enjoy "${place.name}"? Focus on what makes this place special and how it matches their taste preferences.`
+            content: `The user wants "${originalQuery}" and you're recommending "${place.name}". Explain specifically why this place matches their taste - what makes it perfect for someone with this preference? Focus on taste, atmosphere, style, or cultural similarities.`
           }
         ],
         max_tokens: 80,
@@ -524,12 +521,7 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
 
     if (response.ok) {
       const data = await response.json()
-      let explanation = data.choices[0]?.message?.content?.trim() || 'Similar cultural vibe and atmosphere.'
-      
-      // Add Qloo attribution if the place came from Qloo
-      if (hasQlooExplanation) {
-        explanation = `Recommended by Qloo's Taste AI™. ${explanation}`
-      }
+      const explanation = data.choices[0]?.message?.content?.trim() || `Perfect for "${originalQuery}" lovers with its authentic style and flavors.`
       
       explanationCache.set(cacheKey, explanation)
       return explanation
@@ -538,7 +530,7 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
     console.error('OpenAI API error:', error)
   }
 
-  return place.explanation || 'Similar cultural vibe and atmosphere.'
+  return place.explanation || `Perfect for "${originalQuery}" enthusiasts with its authentic approach and vibrant atmosphere.`
 }
 
 const getGooglePlacePhoto = (photoReference: string): string => {
@@ -555,7 +547,7 @@ export const handler: Handler = async (event, context) => {
 
   try {
     const body: RequestBody = JSON.parse(event.body || '{}')
-    const { type, place_id, query, city, limit = 3 } = body
+    const { type, place_id, query, city, limit = 50 } = body // Increase default limit
 
     if (!city) {
       return {
@@ -579,7 +571,7 @@ export const handler: Handler = async (event, context) => {
         
         if (qlooPlaces.length > 0) {
           console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} places`)
-          places = await enrichPlacesWithGoogleData(qlooPlaces, city)
+          places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
         } else {
           console.log('⚠️ Qloo API returned no results, falling back to OpenAI')
         }
@@ -597,7 +589,7 @@ export const handler: Handler = async (event, context) => {
         
         if (qlooPlaces.length > 0) {
           console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} similar places`)
-          places = await enrichPlacesWithGoogleData(qlooPlaces, city)
+          places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
         } else {
           console.log('⚠️ Qloo API returned no similar places, falling back to OpenAI')
         }
@@ -609,19 +601,17 @@ export const handler: Handler = async (event, context) => {
     // Step 2: If Qloo failed or returned no results, use OpenAI fallback
     if (places.length === 0) {
       console.log('🤖 Using OpenAI fallback system')
-      places = await generatePlacesWithOpenAI(searchQuery, city, limit)
+      places = await generatePlacesWithOpenAI(searchQuery, city, Math.min(limit, 10)) // Keep OpenAI reasonable
     }
 
     console.log(`🎯 Final result: ${places.length} enriched places ready`)
     console.log(`📍 Found ${places.length} places for "${searchQuery}" in ${city}`)
 
-    // Generate explanations only for places that don't have them
+    // Generate explanations for all places (no limit)
     const processedPlaces = await Promise.all(
-      places.slice(0, limit).map(async (place) => {
-        // Preserve existing explanations from OpenAI or generate new ones
-        const explanation = place.explanation && place.explanation.trim().length > 0 
-          ? place.explanation 
-          : await generateExplanation(searchQuery, place)
+      places.map(async (place) => {
+        // Always generate personalized explanations with OpenAI instead of using generic fallbacks
+        const explanation = await generateExplanation(searchQuery, place)
         
         return {
           id: place.id,
@@ -643,6 +633,16 @@ export const handler: Handler = async (event, context) => {
       places.some(place => place.id && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(place.id))
     )
 
+    // Generate overall explanation for the search results
+    let overallExplanation = '';
+    if (processedPlaces.length > 0) {
+      if (isQlooSource) {
+        overallExplanation = `Based on your taste for "${searchQuery}", these places in ${city} share similar cultural vibes, atmospheres, and style preferences.`;
+      } else {
+        overallExplanation = `These ${city} establishments match your preference for "${searchQuery}" with similar ambience, cultural elements, and dining experiences.`;
+      }
+    }
+
     return {
       statusCode: 200,
       headers: {
@@ -655,7 +655,8 @@ export const handler: Handler = async (event, context) => {
         places: processedPlaces,
         query: searchQuery,
         city,
-        source: isQlooSource ? 'qloo' : 'openai-fallback'
+        source: isQlooSource ? 'qloo' : 'openai-fallback',
+        explanation: overallExplanation
       })
     }
 

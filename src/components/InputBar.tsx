@@ -7,9 +7,10 @@ interface InputBarProps {
   query: string
   setQuery: (query: string) => void
   city: string
+  setCity: (city: string) => void
 }
 
-const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps) => {
+const InputBar = ({ onSearch, isLoading, query, setQuery, city, setCity }: InputBarProps) => {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [urlParseError, setUrlParseError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -220,6 +221,22 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city }: InputBarProps)
       {/* Help text */}
       <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
         💡 Try: "cozy minimalistic cafe" or "@Starbucks" or paste a Google Maps URL
+      </div>
+
+      {/* City input */}
+      <div className="mt-3">
+        <label htmlFor="city" className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">
+          Target City
+        </label>
+        <input
+          id="city"
+          type="text"
+          value={city}
+          onChange={(e) => setCity(e.target.value)}
+          placeholder="Tokyo, New York, London..."
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          disabled={isLoading}
+        />
       </div>
 
       {/* Autocomplete suggestions dropdown */}
