@@ -182,13 +182,6 @@ function App() {
           </div>
         </div>
 
-        {/* Share Button */}
-        {query && city && !isLoading && visiblePlaces.length > 0 && (
-          <div className="mb-6">
-            <ShareButton query={query} city={city} />
-          </div>
-        )}
-
         {/* Overall Explanation */}
         {explanation && (
           <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
@@ -198,17 +191,24 @@ function App() {
           </div>
         )}
 
-        {/* Results Counter */}
+        {/* Results Header with Counter and Share Button */}
         {allPlaces.length > 0 && (
-          <div className="mb-4 text-center">
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
-              Showing {visiblePlaces.length} of {allPlaces.length} places
-              {visibleCount < allPlaces.length && (
-                <span className="ml-2 text-blue-600 dark:text-blue-400">
-                  (scroll down for more)
-                </span>
-              )}
-            </p>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-center flex-1">
+              <p className="text-gray-600 dark:text-gray-400 text-sm">
+                Showing {visiblePlaces.length} of {allPlaces.length} places
+                {visibleCount < allPlaces.length && (
+                  <span className="ml-2 text-blue-600 dark:text-blue-400">
+                    (scroll down for more)
+                  </span>
+                )}
+              </p>
+            </div>
+            {query && city && !isLoading && visiblePlaces.length > 0 && (
+              <div className="flex-shrink-0">
+                <ShareButton query={query} city={city} />
+              </div>
+            )}
           </div>
         )}
 
