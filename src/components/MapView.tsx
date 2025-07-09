@@ -61,51 +61,72 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView =
 
   // Load Google Maps script
   useEffect(() => {
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY
-    
-    console.log('MapView: Initializing Google Maps, API key available:', !!apiKey)
-    
-    if (!apiKey) {
-      console.error('Google Maps API key not found in environment variables')
-      return
-    }
-
-    // Check if Google Maps is already loaded
-    if (window.google && window.google.maps) {
-      console.log('MapView: Google Maps already loaded')
-      setIsLoaded(true)
-      return
-    }
-
-    // Create script element
-    const script = document.createElement('script')
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
-    script.async = true
-    script.defer = true
-    
-    // Set up callback for when script loads
-    script.onload = () => {
-      console.log('MapView: Google Maps script loaded successfully')
-      setIsLoaded(true)
-    }
-    
-    script.onerror = (error) => {
-      console.error('MapView: Failed to load Google Maps script:', error)
-    }
-    
-    document.head.appendChild(script)
-
-    return () => {
-      // Cleanup - remove script if component unmounts
+    const loadGoogleMaps = async () => {
       try {
-        if (script.parentNode) {
-          document.head.removeChild(script)
+        // Check if Google Maps is already loaded
+        if (window.google && window.google.maps) {
+          console.log('MapView: Google Maps already loaded')
+          setIsLoaded(true)
+          return
         }
-      } catch (e) {
-        // Script might already be removed
-        console.log('MapView: Script cleanup completed')
+
+        console.log('MapView: Fetching Google Maps API key from secure endpoint')
+        
+        // Get API key from secure endpoint
+        const response = await fetch('/.netlify/functions/maps-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        
+        if (!response.ok) {
+          console.error('MapView: Failed to get API key from secure endpoint')
+          return
+        }
+        
+        const { apiKey } = await response.json()
+        
+        if (!apiKey) {
+          console.error('MapView: No API key received from secure endpoint')
+          return
+        }
+
+        console.log('MapView: Successfully received API key, loading Google Maps script')
+
+        // Create script element
+        const script = document.createElement('script')
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
+        script.async = true
+        script.defer = true
+        
+        // Set up callback for when script loads
+        script.onload = () => {
+          console.log('MapView: Google Maps script loaded successfully')
+          setIsLoaded(true)
+        }
+        
+        script.onerror = (error) => {
+          console.error('MapView: Failed to load Google Maps script:', error)
+        }
+        
+        document.head.appendChild(script)
+
+        return () => {
+          // Cleanup - remove script if component unmounts
+          try {
+            if (script.parentNode) {
+              document.head.removeChild(script)
+            }
+          } catch (e) {
+            // Script might already be removed
+            console.log('MapView: Script cleanup completed')
+          }
+        }
+      } catch (error) {
+        console.error('MapView: Error loading Google Maps:', error)
       }
     }
+
+    loadGoogleMaps()
   }, [])
 
   // Initialize map when Google Maps is loaded
