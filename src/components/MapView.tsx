@@ -21,6 +21,7 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
   const markersRef = useRef<any[]>([])
   const infoWindowRef = useRef<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  const [isMapReady, setIsMapReady] = useState(false)
 
   // Fallback coordinates for major cities
   const getCityFallbackCoords = (cityName: string) => {
@@ -142,7 +143,10 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
 
       // Initialize InfoWindow
       infoWindowRef.current = new window.google.maps.InfoWindow()
-      console.log('MapView: Map initialized successfully')
+      
+      // Mark map as ready
+      setIsMapReady(true)
+      console.log('MapView: Map initialized successfully and marked as ready')
     }
     
     geocoder.geocode({ address: city }, (results: any, status: any) => {
@@ -159,10 +163,11 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
     })
   }, [isLoaded, city])
 
-  // Update markers when places change
+  // Update markers when places change OR when map becomes ready
   useEffect(() => {
-    if (!mapInstanceRef.current || !window.google || !places.length) {
+    if (!isMapReady || !mapInstanceRef.current || !window.google || !places.length) {
       console.log('MapView: Skipping marker update - missing requirements:', {
+        isMapReady,
         hasMap: !!mapInstanceRef.current,
         hasGoogle: !!window.google,
         placesCount: places.length
@@ -178,7 +183,6 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
 
     // Create new markers
     const bounds = new window.google.maps.LatLngBounds()
-    const geocoder = new window.google.maps.Geocoder()
     let processedMarkers = 0
     const totalPlaces = places.length
 
@@ -192,7 +196,7 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
         title: place.name,
         icon: {
           path: window.google.maps.SymbolPath.CIRCLE,
-          scale: 8,
+          scale: selectedPlaceId === place.id ? 10 : 8,
           fillColor: selectedPlaceId === place.id ? '#EF4444' : '#3B82F6',
           fillOpacity: 1,
           strokeColor: '#FFFFFF',
@@ -227,7 +231,7 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
                     title="Open in Google Maps"
                   >
                     <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                     </svg>
                   </button>
                 </div>
@@ -283,7 +287,7 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
 
     // Function to handle completion of all markers
     const handleMarkersComplete = () => {
-      console.log('MapView: All markers processed, fitting bounds')
+      console.log('MapView: All markers processed, fitting bounds with', markersRef.current.length, 'markers')
       if (markersRef.current.length > 1) {
         mapInstanceRef.current.fitBounds(bounds)
         // Ensure minimum zoom level
@@ -301,16 +305,21 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
       }
     }
 
+    // Create markers immediately with fallback coordinates, then try to improve them with geocoding
     places.forEach((place, index) => {
       console.log(`MapView: Processing place ${index + 1}: ${place.name}`)
       
-      // Set a timeout for each geocoding attempt
+      // Try geocoding first - only create marker with proper coordinates
+      const geocoder = new window.google.maps.Geocoder()
       let geocodingCompleted = false
       
-      // Timeout fallback - create marker with random coordinates if geocoding takes too long
-      const fallbackTimeout = setTimeout(() => {
+      // Set a timeout for geocoding attempt (3 seconds)
+      const geocodingTimeout = setTimeout(() => {
         if (!geocodingCompleted) {
           console.log(`MapView: Geocoding timeout for ${place.name}, using fallback coordinates`)
+          geocodingCompleted = true
+          
+          // Only use fallback if geocoding completely fails
           const fallbackCoords = generateRandomCoordinatesInCity(city, index)
           const fallbackPosition = new window.google.maps.LatLng(fallbackCoords.lat, fallbackCoords.lng)
           createMarker(place, fallbackPosition, true)
@@ -320,43 +329,49 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
             handleMarkersComplete()
           }
         }
-      }, 3000) // 3 second timeout
+      }, 3000)
       
-      // Try geocoding first
+      // Try geocoding with place name and address
       geocoder.geocode({ address: `${place.name}, ${place.address}` }, (results: any, status: any) => {
-        if (geocodingCompleted) return // Prevent double execution
-        geocodingCompleted = true
-        clearTimeout(fallbackTimeout)
-        
-        console.log(`MapView: Geocoding result for ${place.name}:`, status)
+        if (geocodingCompleted) return
         
         if (status === 'OK' && results[0]) {
+          console.log(`MapView: Geocoding successful for ${place.name}`)
+          geocodingCompleted = true
+          clearTimeout(geocodingTimeout)
+          
           const position = results[0].geometry.location
           createMarker(place, position)
+          
+          processedMarkers++
+          if (processedMarkers === totalPlaces) {
+            handleMarkersComplete()
+          }
         } else {
-          // Try with just the address
+          // Try with just the address as backup
           geocoder.geocode({ address: place.address }, (altResults: any, altStatus: any) => {
+            if (geocodingCompleted) return
+            
             if (altStatus === 'OK' && altResults[0]) {
-              console.log(`MapView: Alternate geocoding succeeded for ${place.name}`)
+              console.log(`MapView: Alternate geocoding successful for ${place.name}`)
+              geocodingCompleted = true
+              clearTimeout(geocodingTimeout)
+              
               const position = altResults[0].geometry.location
               createMarker(place, position)
-            } else {
-              console.log(`MapView: Both geocoding failed for ${place.name}, using fallback`)
-              const fallbackCoords = generateRandomCoordinatesInCity(city, index)
-              const fallbackPosition = new window.google.maps.LatLng(fallbackCoords.lat, fallbackCoords.lng)
-              createMarker(place, fallbackPosition, true)
+              
+              processedMarkers++
+              if (processedMarkers === totalPlaces) {
+                handleMarkersComplete()
+              }
             }
+            // If this also fails, the timeout will handle it with fallback coordinates
           })
-        }
-        
-        processedMarkers++
-        if (processedMarkers === totalPlaces) {
-          handleMarkersComplete()
         }
       })
     })
 
-    // Emergency fallback if no markers were created after 10 seconds
+    // Emergency fallback if no markers were created after 5 seconds
     const emergencyTimeout = setTimeout(() => {
       if (markersRef.current.length === 0) {
         console.log('MapView: Emergency fallback - creating markers with random coordinates')
@@ -367,12 +382,12 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
         })
         handleMarkersComplete()
       }
-    }, 10000)
+    }, 5000)
 
     return () => {
       clearTimeout(emergencyTimeout)
     }
-  }, [places, mapInstanceRef.current, selectedPlaceId, onPlaceSelect, city])
+  }, [isMapReady, places, selectedPlaceId, onPlaceSelect, city])
 
   // Update marker styles when selected place changes
   useEffect(() => {

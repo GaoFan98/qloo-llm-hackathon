@@ -176,6 +176,12 @@ function App() {
   // Handle view mode changes
   const handleViewModeChange = (newViewMode: ViewMode) => {
     setViewMode(newViewMode)
+    
+    // When switching to split view, auto-select first place if none selected
+    // This ensures map pins are immediately visible
+    if (newViewMode === 'split' && !selectedPlaceId && allPlaces.length > 0) {
+      setSelectedPlaceId(allPlaces[0].id)
+    }
   }
 
   // Render results list
@@ -337,11 +343,11 @@ function App() {
             {/* SPLIT VIEW - Fixed height with internal scrolling */}
             {viewMode === 'split' && (
               <div className="h-full flex">
-                {/* Left Panel - Scrollable Results */}
-                <div className="w-1/2 h-full overflow-y-auto bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700">
-                  <div className="p-4">
-                    {/* Results Header with Counter */}
-                    {allPlaces.length > 0 && (
+                {/* Left Panel - Sticky Header + Scrollable Results */}
+                <div className="w-1/2 h-full bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+                  {/* Sticky Header */}
+                  {allPlaces.length > 0 && (
+                    <div className="flex-shrink-0 p-4 pb-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
                       <div className="mb-4 flex items-center justify-between">
                         <div className="text-center flex-1">
                           <p className="text-gray-600 dark:text-gray-400 text-sm">
@@ -359,45 +365,50 @@ function App() {
                           </div>
                         )}
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {/* Results Grid */}
-                    {!isLoading && visiblePlaces.length > 0 && (
-                      <div className="grid grid-cols-3 gap-3 pb-8">
-                        {visiblePlaces.map((place, index) => (
-                          <div
-                            key={`${place.id}-${index}`}
-                            ref={index === visiblePlaces.length - 1 ? lastPlaceElementRef : null}
-                          >
-                            <ResultCard 
-                              place={place}
-                              isSelected={selectedPlaceId === place.id}
-                              onHover={handlePlaceHover}
-                              onSelect={handlePlaceSelect}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Loading More Indicator */}
-                    {isLoadingMore && (
-                      <div className="mt-6 text-center pb-8">
-                        <div className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-lg shadow-md">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                          <span className="text-gray-600 dark:text-gray-400 text-sm">Loading more places...</span>
+                  {/* Scrollable Content Area */}
+                  <div className="flex-1 overflow-y-auto">
+                    <div className="p-4">
+                      {/* Results Grid */}
+                      {!isLoading && visiblePlaces.length > 0 && (
+                        <div className="grid grid-cols-3 gap-3 pb-8">
+                          {visiblePlaces.map((place, index) => (
+                            <div
+                              key={`${place.id}-${index}`}
+                              ref={index === visiblePlaces.length - 1 ? lastPlaceElementRef : null}
+                            >
+                              <ResultCard 
+                                place={place}
+                                isSelected={selectedPlaceId === place.id}
+                                onHover={handlePlaceHover}
+                                onSelect={handlePlaceSelect}
+                              />
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                    )}
+                      )}
 
-                    {/* End of Results Indicator */}
-                    {!isLoading && allPlaces.length > 0 && visibleCount >= allPlaces.length && (
-                      <div className="mt-6 text-center pb-8">
-                        <p className="text-gray-500 dark:text-gray-400 text-sm">
-                          🎉 You've seen all {allPlaces.length} places! Try a new search to discover more.
-                        </p>
-                      </div>
-                    )}
+                      {/* Loading More Indicator */}
+                      {isLoadingMore && (
+                        <div className="mt-6 text-center pb-8">
+                          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white dark:bg-gray-800 rounded-lg shadow-md">
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            <span className="text-gray-600 dark:text-gray-400 text-sm">Loading more places...</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* End of Results Indicator */}
+                      {!isLoading && allPlaces.length > 0 && visibleCount >= allPlaces.length && (
+                        <div className="mt-6 text-center pb-8">
+                          <p className="text-gray-500 dark:text-gray-400 text-sm">
+                            🎉 You've seen all {allPlaces.length} places! Try a new search to discover more.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -405,7 +416,7 @@ function App() {
                 <div className="w-1/2 h-full">
                   <MapView
                     places={allPlaces}
-                    selectedPlaceId={selectedPlaceId || hoveredPlaceId || undefined}
+                    selectedPlaceId={selectedPlaceId || hoveredPlaceId || (allPlaces.length > 0 ? allPlaces[0].id : undefined)}
                     onPlaceSelect={handlePlaceSelect}
                     city={city}
                   />
