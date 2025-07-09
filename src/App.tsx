@@ -169,17 +169,15 @@ function App() {
         </div>
 
         {/* Search Form */}
-        <div className="flex flex-col sm:flex-row gap-4 mb-8 items-end">
-          <div className="flex-1">
-            <InputBar
-              onSearch={handleSearch}
-              isLoading={isLoading}
-              query={query}
-              setQuery={setQuery}
-              city={city}
-              setCity={setCity}
-            />
-          </div>
+        <div className="mb-8">
+          <InputBar
+            onSearch={handleSearch}
+            isLoading={isLoading}
+            query={query}
+            setQuery={setQuery}
+            city={city}
+            setCity={setCity}
+          />
         </div>
 
         {/* Overall Explanation */}
