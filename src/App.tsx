@@ -336,6 +336,7 @@ function App() {
                   selectedPlaceId={selectedPlaceId || undefined}
                   onPlaceSelect={handlePlaceSelect}
                   city={city}
+                  isFullMapView={true}
                 />
               </div>
             )}
@@ -419,6 +420,7 @@ function App() {
                     selectedPlaceId={selectedPlaceId || hoveredPlaceId || (allPlaces.length > 0 ? allPlaces[0].id : undefined)}
                     onPlaceSelect={handlePlaceSelect}
                     city={city}
+                    isFullMapView={false}
                   />
                 </div>
               </div>

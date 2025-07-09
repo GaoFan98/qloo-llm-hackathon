@@ -6,6 +6,7 @@ interface MapViewProps {
   onPlaceSelect?: (place: Place) => void
   selectedPlaceId?: string
   city: string
+  isFullMapView?: boolean
 }
 
 declare global {
@@ -15,13 +16,15 @@ declare global {
   }
 }
 
-const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps) => {
+const MapView = ({ places, onPlaceSelect, selectedPlaceId, city, isFullMapView = false }: MapViewProps) => {
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const markersRef = useRef<any[]>([])
   const infoWindowRef = useRef<any>(null)
   const [isLoaded, setIsLoaded] = useState(false)
   const [isMapReady, setIsMapReady] = useState(false)
+  const [selectedPlaceCard, setSelectedPlaceCard] = useState<Place | null>(null)
+  const [cardPosition, setCardPosition] = useState<{ x: number, y: number } | null>(null)
 
   // Fallback coordinates for major cities
   const getCityFallbackCoords = (cityName: string) => {
@@ -206,73 +209,95 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
       })
 
       // Add click listener to marker
-      marker.addListener('click', () => {
-        // Create info window content with improved Airbnb-style card design
-        const content = `
-          <div class="p-0 max-w-xs w-80 font-sans">
-            <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-              ${place.image ? `
-                <div class="h-40 w-full bg-gray-200 overflow-hidden">
-                  <img 
-                    src="${place.image}" 
-                    alt="${place.name}"
-                    class="w-full h-full object-cover"
-                    onerror="this.style.display='none'"
-                  />
-                </div>
-              ` : ''}
-              
-              <div class="p-4">
-                <div class="flex items-start justify-between mb-2">
-                  <h3 class="text-lg font-semibold text-gray-900 flex-1 pr-2 leading-tight">${place.name}</h3>
-                  <button 
-                    onclick="event.stopPropagation(); window.open('https://www.google.com/maps/search/${encodeURIComponent(place.name + ' ' + place.address)}', '_blank')"
-                    class="p-1 rounded hover:bg-gray-100 transition-colors flex-shrink-0"
-                    title="Open in Google Maps"
-                  >
-                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                  </button>
-                </div>
-                
-                <p class="text-sm text-gray-600 mb-3 leading-relaxed">${place.address}</p>
-                
-                ${place.rating ? `
-                  <div class="flex items-center mb-3">
-                    <div class="flex items-center">
-                      <svg class="w-4 h-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                      <span class="text-sm font-medium text-gray-900">${place.rating.toFixed(1)}</span>
-                      ${place.reviewCount ? `<span class="text-sm text-gray-500 ml-1">(${place.reviewCount.toLocaleString()})</span>` : ''}
-                    </div>
+      marker.addListener('click', (event: any) => {
+        // Prevent map click event from firing
+        if (event) {
+          event.stop()
+        }
+        
+        if (isFullMapView) {
+          // In full map view, show custom card overlay
+          setSelectedPlaceCard(place)
+          
+          // Simple positioning - try to position card near the center-right of the map
+          const mapContainer = mapRef.current
+          if (mapContainer) {
+            const containerRect = mapContainer.getBoundingClientRect()
+            
+            // Position card in the right side of the map, vertically centered
+            setCardPosition({
+              x: Math.max(20, containerRect.width - 340), // 20px from right edge (320px card + 20px margin)
+              y: Math.max(20, (containerRect.height - 300) / 2) // Vertically centered
+            })
+          }
+        } else {
+          // In split view, use the existing info window behavior
+          const content = `
+            <div class="p-0 max-w-xs w-80 font-sans">
+              <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+                ${place.image ? `
+                  <div class="h-40 w-full bg-gray-200 overflow-hidden">
+                    <img 
+                      src="${place.image}" 
+                      alt="${place.name}"
+                      class="w-full h-full object-cover"
+                      onerror="this.style.display='none'"
+                    />
                   </div>
                 ` : ''}
                 
-                ${place.explanation ? `
-                  <p class="text-sm text-gray-700 leading-relaxed mb-4 max-h-20 overflow-hidden">${place.explanation.length > 120 ? place.explanation.substring(0, 120) + '...' : place.explanation}</p>
-                ` : ''}
-                
-                <div class="pt-3 border-t border-gray-100">
-                  <button 
-                    onclick="window.open('https://www.google.com/maps/search/${encodeURIComponent(place.name + ' ' + place.address)}', '_blank')"
-                    class="w-full bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center"
-                  >
-                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                    </svg>
-                    View on Google Maps
-                  </button>
+                <div class="p-4">
+                  <div class="flex items-start justify-between mb-2">
+                    <h3 class="text-lg font-semibold text-gray-900 flex-1 pr-2 leading-tight">${place.name}</h3>
+                    <button 
+                      onclick="event.stopPropagation(); window.open('https://www.google.com/maps/search/${encodeURIComponent(place.name + ' ' + place.address)}', '_blank')"
+                      class="p-1 rounded hover:bg-gray-100 transition-colors flex-shrink-0"
+                      title="Open in Google Maps"
+                    >
+                      <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </button>
+                  </div>
+                  
+                  <p class="text-sm text-gray-600 mb-3 leading-relaxed">${place.address}</p>
+                  
+                  ${place.rating ? `
+                    <div class="flex items-center mb-3">
+                      <div class="flex items-center">
+                        <svg class="w-4 h-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                        <span class="text-sm font-medium text-gray-900">${place.rating.toFixed(1)}</span>
+                        ${place.reviewCount ? `<span class="text-sm text-gray-500 ml-1">(${place.reviewCount.toLocaleString()})</span>` : ''}
+                      </div>
+                    </div>
+                  ` : ''}
+                  
+                  ${place.explanation ? `
+                    <p class="text-sm text-gray-700 leading-relaxed mb-4 max-h-20 overflow-hidden">${place.explanation.length > 120 ? place.explanation.substring(0, 120) + '...' : place.explanation}</p>
+                  ` : ''}
+                  
+                  <div class="pt-3 border-t border-gray-100">
+                    <button 
+                      onclick="window.open('https://www.google.com/maps/search/${encodeURIComponent(place.name + ' ' + place.address)}', '_blank')"
+                      class="w-full bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center"
+                    >
+                      <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                      View on Google Maps
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        `
+          `
 
-        infoWindowRef.current.setContent(content)
-        infoWindowRef.current.open(mapInstanceRef.current, marker)
+          infoWindowRef.current.setContent(content)
+          infoWindowRef.current.open(mapInstanceRef.current, marker)
+        }
         
         // Notify parent component
         if (onPlaceSelect) {
@@ -407,6 +432,30 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
     })
   }, [selectedPlaceId, places])
 
+  // Close card when view mode changes or places change
+  useEffect(() => {
+    setSelectedPlaceCard(null)
+    setCardPosition(null)
+  }, [isFullMapView, places])
+
+  // Add click handler to map to close card when clicking outside
+  useEffect(() => {
+    if (!mapInstanceRef.current || !isFullMapView) return
+
+    const handleMapClick = () => {
+      setSelectedPlaceCard(null)
+      setCardPosition(null)
+    }
+
+    const listener = mapInstanceRef.current.addListener('click', handleMapClick)
+
+    return () => {
+      if (listener) {
+        window.google.maps.event.removeListener(listener)
+      }
+    }
+  }, [isMapReady, isFullMapView])
+
   if (!isLoaded) {
     return (
       <div className="w-full h-full flex items-center justify-center bg-gray-100 dark:bg-gray-800">
@@ -421,6 +470,104 @@ const MapView = ({ places, onPlaceSelect, selectedPlaceId, city }: MapViewProps)
   return (
     <div className="w-full h-full relative">
       <div ref={mapRef} className="w-full h-full" />
+      
+      {/* Beautiful Card Overlay for Full Map View */}
+      {isFullMapView && selectedPlaceCard && cardPosition && (
+        <>
+          {/* Backdrop overlay */}
+          <div 
+            className="absolute inset-0 bg-black bg-opacity-20 z-40 transition-opacity duration-300"
+            onClick={() => setSelectedPlaceCard(null)}
+          />
+          
+          <div 
+            className="absolute z-50 w-80 bg-white dark:bg-gray-800 rounded-xl shadow-2xl overflow-hidden transform transition-all duration-500 ease-out animate-in slide-in-from-right-5 fade-in"
+            style={{
+              left: cardPosition.x,
+              top: cardPosition.y,
+            }}
+          >
+            {/* Card Header with Close Button */}
+            <div className="relative">
+              {selectedPlaceCard.image && (
+                <div className="h-48 w-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <img 
+                    src={selectedPlaceCard.image} 
+                    alt={selectedPlaceCard.name}
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none'
+                    }}
+                  />
+                </div>
+              )}
+              
+              {/* Close Button */}
+              <button
+                onClick={() => setSelectedPlaceCard(null)}
+                className="absolute top-3 right-3 w-8 h-8 bg-white dark:bg-gray-800 bg-opacity-95 hover:bg-opacity-100 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 hover:scale-110 border border-gray-200 dark:border-gray-600"
+              >
+                <svg className="w-4 h-4 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Card Content */}
+            <div className="p-4">
+              {/* Title and Rating */}
+              <div className="mb-3">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white leading-tight mb-2">
+                  {selectedPlaceCard.name}
+                </h3>
+                
+                {selectedPlaceCard.rating && (
+                  <div className="flex items-center">
+                    <svg className="w-4 h-4 text-yellow-400 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">
+                      {selectedPlaceCard.rating.toFixed(1)}
+                    </span>
+                    {selectedPlaceCard.reviewCount && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400 ml-1">
+                        ({selectedPlaceCard.reviewCount.toLocaleString()})
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Short Description */}
+              {selectedPlaceCard.explanation && (
+                <p className="text-sm text-gray-600 dark:text-gray-300 leading-relaxed mb-4 line-clamp-3">
+                  {selectedPlaceCard.explanation.length > 100 
+                    ? selectedPlaceCard.explanation.substring(0, 100) + '...' 
+                    : selectedPlaceCard.explanation
+                  }
+                </p>
+              )}
+
+              {/* Action Button */}
+              <button 
+                onClick={() => {
+                  window.open(
+                    `https://www.google.com/maps/search/${encodeURIComponent(selectedPlaceCard.name + ' ' + selectedPlaceCard.address)}`, 
+                    '_blank'
+                  )
+                }}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center shadow-lg hover:shadow-xl"
+              >
+                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                View on Google Maps
+              </button>
+            </div>
+          </div>
+        </>
+      )}
       
       {places.length > 0 && (
         <div className="absolute top-4 left-4 bg-white dark:bg-gray-800 rounded-lg shadow-lg px-3 py-2 text-sm text-gray-700 dark:text-gray-300">
