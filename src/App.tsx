@@ -4,7 +4,7 @@ import ResultCard from './components/ResultCard'
 import SkeletonLoader from './components/SkeletonLoader'
 import ShareButton from './components/ShareButton'
 import { useQueryParam } from './hooks/useQueryParam'
-import { Place, ApiResponse } from './types'
+import { Place } from './types'
 
 function App() {
   const [query, setQuery] = useQueryParam('q', '')

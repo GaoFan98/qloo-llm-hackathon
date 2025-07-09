@@ -10,6 +10,7 @@ interface QlooPlace {
   address: string
   image?: string
   rating?: number
+  reviewCount?: number
   distance?: number
   explanation?: string
   originalQuery: string
@@ -146,7 +147,8 @@ function convertQlooResponse(qlooData: any, query: string, city: string) {
     id: entity.entity_id || `qloo-${index}`,
     name: entity.name || 'Unknown Place',
     address: entity.properties?.address || entity.disambiguation || `${city}`,
-    rating: entity.properties?.business_rating || 4.5,
+    rating: entity.properties?.business_rating,
+    reviewCount: undefined,
     image: entity.properties?.image?.url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
     explanation: entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.',
     originalQuery: query // Pass the original query for better processing
@@ -305,7 +307,8 @@ const extractPlacesManually = (content: string, query: string, city: string, lim
             id: `manual-${i}`,
             name,
             address,
-            rating: rating ? parseFloat(rating) : 4.5,
+            rating: rating ? parseFloat(rating) : undefined, // Don't hardcode fallback rating
+            reviewCount: undefined, // Will be filled when enriched with Google Places data
             explanation,
             image: getUnsplashImage(query, i),
             originalQuery: query
@@ -358,7 +361,8 @@ const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPl
       name: `Blue Bottle Coffee`,
       address: `Central ${city}`,
       image: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800',
-      rating: 4.5,
+      rating: undefined, // Will be filled when enriched with Google Places data
+      reviewCount: undefined, // Will be filled when enriched with Google Places data
       originalQuery: query
     },
     {
@@ -366,7 +370,8 @@ const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPl
       name: `Local Artisan Cafe`,
       address: `Downtown ${city}`,
       image: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800',
-      rating: 4.3,
+      rating: undefined, // Will be filled when enriched with Google Places data
+      reviewCount: undefined, // Will be filled when enriched with Google Places data
       originalQuery: query
     },
     {
@@ -374,7 +379,8 @@ const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPl
       name: `Specialty Coffee Roasters`,
       address: `Arts District, ${city}`, 
       image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=800',
-      rating: 4.7,
+      rating: undefined, // Will be filled when enriched with Google Places data
+      reviewCount: undefined, // Will be filled when enriched with Google Places data
       originalQuery: query
     }
   ]
@@ -534,7 +540,8 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
       id: place.id || `openai-${index}`,
       name: place.name,
       address: place.address,
-      rating: place.rating || 4.5,
+      rating: place.rating, // Keep original rating if available, don't hardcode
+      reviewCount: undefined, // Don't show fake review counts
       explanation: place.explanation || 'Great place matching your taste',
       image: getUnsplashImage('restaurant', index),
       originalQuery: place.originalQuery || 'restaurants'
@@ -632,7 +639,8 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
             id: place.id || `google-${candidate.place_id}`,
             name: candidate.name,
             address: candidate.formatted_address,
-            rating: candidate.rating || 4.0,
+            rating: candidate.rating, // Only use real rating from Google, no fallback
+            reviewCount: candidate.user_ratings_total, // Only use real review count from Google, no fallback
             explanation: place.explanation || 'Great place matching your taste',
             image: imageUrl,
             originalQuery: place.originalQuery || 'restaurants'
@@ -841,6 +849,7 @@ export const handler: Handler = async (event, context) => {
           image: place.image,
           explanation,
           rating: place.rating,
+          reviewCount: place.reviewCount,
           distance: place.distance
         }
       })
@@ -891,4 +900,4 @@ export const handler: Handler = async (event, context) => {
       })
     }
   }
-} 
+}

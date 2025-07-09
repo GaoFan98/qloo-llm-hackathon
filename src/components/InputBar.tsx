@@ -13,7 +13,6 @@ interface InputBarProps {
 const InputBar = ({ onSearch, isLoading, query, setQuery, city, setCity }: InputBarProps) => {
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [urlParseError, setUrlParseError] = useState<string | null>(null)
-  const [activeField, setActiveField] = useState<'description' | 'city' | null>(null)
   const queryInputRef = useRef<HTMLInputElement>(null)
   const cityInputRef = useRef<HTMLInputElement>(null)
   
@@ -141,7 +140,6 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city, setCity }: Input
         const target = event.target as Element
         if (!target.closest('[data-suggestion-button]')) {
           setShowSuggestions(false)
-          setActiveField(null)
         }
       }
     }
@@ -167,7 +165,6 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city, setCity }: Input
               value={query}
               onChange={handleQueryChange}
               onKeyDown={handleKeyDown}
-              onFocus={() => setActiveField('description')}
               placeholder="Cozy minimalistic cafe or @Starbucks..."
               className="w-full text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 bg-transparent border-0 focus:outline-none focus:ring-0"
             />
@@ -183,7 +180,6 @@ const InputBar = ({ onSearch, isLoading, query, setQuery, city, setCity }: Input
               type="text"
               value={city}
               onChange={handleCityChange}
-              onFocus={() => setActiveField('city')}
               placeholder="Tokyo, Seoul, Paris..."
               className="w-full text-sm text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 bg-transparent border-0 focus:outline-none focus:ring-0"
             />

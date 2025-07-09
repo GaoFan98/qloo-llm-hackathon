@@ -6,6 +6,7 @@ export interface Place {
   explanation?: string
   distance?: number
   rating?: number
+  reviewCount?: number
 }
 
 export interface QlooSimilarResponse {
