@@ -21,62 +21,125 @@ interface RequestBody {
   limit: number
 }
 
-// Get Qloo API base URL from environment or use default
-const QLOO_API_URL = process.env.QLOO_API_URL || 'https://api.qloo.com'
+// Qloo API configuration
+const QLOO_API_URL = process.env.QLOO_API_URL || 'https://hackathon.api.qloo.com'
+const QLOO_API_KEY = process.env.QLOO_API_KEY
 
-// Try Qloo API first
-const tryQlooAPI = async (type: string, query: string, city: string): Promise<QlooPlace[] | null> => {
-  if (!process.env.QLOO_API_KEY) {
-    console.log('❌ Qloo API key not configured, skipping to fallback')
-    return null
+// Helper function to call Qloo API
+async function callQlooAPI(query: string, city: string, type: 'taste' | 'similar' = 'taste') {
+  if (!QLOO_API_KEY) {
+    throw new Error('Qloo API key not configured')
   }
 
-  console.log(`🔄 Trying Qloo API: ${type}, query: ${query}, city: ${city}`)
-  console.log(`Using API URL: ${QLOO_API_URL}`)
-  
-  // Try different authentication methods
-  const authMethods = [
-    { 'Authorization': `Bearer ${process.env.QLOO_API_KEY}` },
-    { 'X-API-Key': process.env.QLOO_API_KEY },
-    { 'API-Key': process.env.QLOO_API_KEY },
-    { 'Authorization': process.env.QLOO_API_KEY }
-  ]
-  
-  for (const headers of authMethods) {
-    try {
-      console.log('Trying auth method:', Object.keys(headers)[0])
-      const response = await fetch(`${QLOO_API_URL}/v1/taste/extract`, {
-        method: 'POST',
-        headers: {
-          ...headers,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ text: query, location: city })
-      })
-      
-      console.log(`Response status: ${response.status}`)
-      if (response.ok) {
-        const data = await response.json()
-        console.log('✅ Success with Qloo API!')
-        // Convert Qloo response to our format
-        return data.recommendations?.map((place: any) => ({
-          id: place.id || `qloo-${Math.random()}`,
-          name: place.name,
-          address: place.address || `${city}`,
-          image: place.image,
-          rating: place.rating || 4.5
-        })) || []
-      } else {
-        const errorText = await response.text()
-        console.log('❌ Qloo auth method failed:', Object.keys(headers)[0], errorText)
+  console.log('🔄 Trying Qloo API:', type, 'query:', query, 'city:', city)
+  console.log('Using API URL:', QLOO_API_URL)
+
+  try {
+    // Simplified search strategies that work with Qloo's actual data
+    const searchStrategies = [
+      // Strategy 1: Simple query with taste preference
+      {
+        endpoint: `${QLOO_API_URL}/search`,
+        params: new URLSearchParams({
+          'query': query,
+          'limit': '10'
+        })
+      },
+      // Strategy 2: Add city for location context
+      {
+        endpoint: `${QLOO_API_URL}/search`,
+        params: new URLSearchParams({
+          'query': `${query} ${city}`,
+          'limit': '10'
+        })
+      },
+      // Strategy 3: Try with restaurants keyword
+      {
+        endpoint: `${QLOO_API_URL}/search`,
+        params: new URLSearchParams({
+          'query': `${city} restaurants`,
+          'limit': '10'
+        })
       }
-    } catch (error) {
-      console.log('❌ Qloo API error:', Object.keys(headers)[0], error)
+    ]
+
+    for (let i = 0; i < searchStrategies.length; i++) {
+      const strategy = searchStrategies[i]
+      const url = `${strategy.endpoint}?${strategy.params.toString()}`
+      
+      console.log(`🌐 Qloo API URL (Strategy ${i + 1}):`, url)
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'X-Api-Key': QLOO_API_KEY,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      console.log(`📡 Qloo API Response status (Strategy ${i + 1}):`, response.status)
+
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.log(`❌ Qloo API Error (Strategy ${i + 1}):`, errorText)
+        continue // Try next strategy
+      }
+
+      const data = await response.json()
+      
+      // Qloo API returns {"results": [...]}, not direct array
+      const entities = data.results || []
+      const resultCount = entities.length
+      
+      console.log(`📊 Qloo API Strategy ${i + 1} found:`, resultCount, 'results')
+      
+      if (resultCount > 0) {
+        console.log(`✅ Qloo API Success with Strategy ${i + 1}! Found`, resultCount, 'results')
+        
+        // Filter to relevant entities (places, destinations, localities with addresses)
+        const relevantPlaces = entities.filter(entity => {
+          const types = entity.types || []
+          const hasAddress = entity.properties?.address || entity.disambiguation
+          
+          return (
+            types.includes('urn:entity:place') ||
+            types.includes('urn:entity:destination') ||
+            types.includes('urn:entity:locality')
+          ) && hasAddress
+        })
+        
+        console.log(`🏪 Filtered to ${relevantPlaces.length} relevant places`)
+        
+        if (relevantPlaces.length > 0) {
+          return { results: { entities: relevantPlaces } } // Convert to expected format
+        }
+      }
     }
+
+    // If all strategies return 0 results
+    console.log('⚠️ All Qloo search strategies returned 0 results')
+    return { results: { entities: [] } }
+
+  } catch (error) {
+    console.error('❌ Qloo API call failed:', error)
+    throw error
   }
-  
-  console.log('❌ All Qloo authentication methods failed, falling back to OpenAI')
-  return null
+}
+
+// Convert Qloo API response to our format
+function convertQlooResponse(qlooData: any, query: string, city: string) {
+  if (!qlooData.results?.entities) {
+    return []
+  }
+
+  return qlooData.results.entities.map((entity: any, index: number) => ({
+    id: entity.entity_id || `qloo-${index}`,
+    name: entity.name || 'Unknown Place',
+    address: entity.properties?.address || entity.disambiguation || `${city}`,
+    rating: entity.properties?.business_rating || 4.5,
+    image: entity.properties?.image?.url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
+    explanation: `Recommended by Qloo's Taste AI™ based on "${query}". ${entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.'}`
+  }))
 }
 
 // OpenAI fallback for place recommendations
@@ -460,19 +523,47 @@ export const handler: Handler = async (event, context) => {
     
     // Step 1: Try Qloo API first
     if (type === 'taste' && searchQuery) {
-      places = await tryQlooAPI(type, searchQuery, city) || []
+      try {
+        console.log('🔄 Attempting Qloo API...')
+        const qlooData = await callQlooAPI(searchQuery, city, 'taste')
+        const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
+        
+        if (qlooPlaces.length > 0) {
+          console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} places`)
+          places = await enrichPlacesWithGoogleData(qlooPlaces, city)
+        } else {
+          console.log('⚠️ Qloo API returned no results, falling back to OpenAI')
+        }
+      } catch (error) {
+        console.log('❌ Qloo API failed, falling back to OpenAI:', error.message)
+      }
     }
     
-    // Step 2: If Qloo failed, use OpenAI fallback
+    // Handle similar places (place_id based searches)
+    if (type === 'similar' && searchQuery) {
+      try {
+        console.log('🔄 Attempting Qloo API for similar places...')
+        const qlooData = await callQlooAPI(searchQuery, city, 'similar')
+        const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
+        
+        if (qlooPlaces.length > 0) {
+          console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} similar places`)
+          places = await enrichPlacesWithGoogleData(qlooPlaces, city)
+        } else {
+          console.log('⚠️ Qloo API returned no similar places, falling back to OpenAI')
+        }
+      } catch (error) {
+        console.log('❌ Qloo API failed for similar places, falling back to OpenAI:', error.message)
+      }
+    }
+    
+    // Step 2: If Qloo failed or returned no results, use OpenAI fallback
     if (places.length === 0) {
       console.log('🤖 Using OpenAI fallback system')
       places = await generatePlacesWithOpenAI(searchQuery, city, limit)
-    } else {
-      console.log('✅ Using Qloo API results')
-      // Enrich Qloo results with Google Places data too
-      places = await enrichPlacesWithGoogleData(places, city)
     }
 
+    console.log(`🎯 Final result: ${places.length} enriched places ready`)
     console.log(`📍 Found ${places.length} places for "${searchQuery}" in ${city}`)
 
     // Generate explanations only for places that don't have them
@@ -495,6 +586,14 @@ export const handler: Handler = async (event, context) => {
       })
     )
 
+    // Detect source based on place characteristics
+    const isQlooSource = places.length > 0 && (
+      // Check if any place has explanation mentioning Qloo
+      places.some(place => place.explanation?.includes("Qloo's Taste AI™")) ||
+      // Check if any place ID looks like a UUID (Qloo entity ID format)
+      places.some(place => place.id && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(place.id))
+    )
+
     return {
       statusCode: 200,
       headers: {
@@ -507,7 +606,7 @@ export const handler: Handler = async (event, context) => {
         places: processedPlaces,
         query: searchQuery,
         city,
-        source: places.length > 0 && places[0].id.startsWith('qloo-') ? 'qloo' : 'openai-fallback'
+        source: isQlooSource ? 'qloo' : 'openai-fallback'
       })
     }
 
