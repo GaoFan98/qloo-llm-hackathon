@@ -381,6 +381,7 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
   console.log(`🌍 Enriching ${places.length} places with Google Places data...`)
 
   const validatedPlaces: QlooPlace[] = []
+  const seenPlaces = new Set<string>() // Track duplicates by name + address
   const maxPlacesToCheck = Math.min(places.length, 50) // Check up to 50 places to avoid timeouts
   const targetPlaces = maxResults // Use the requested limit, but don't stop early
 
@@ -418,9 +419,17 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
               address.toLowerCase().includes(cityLower.replace(' ', '')) ||
               candidate.name.toLowerCase().includes(cityLower)) {
             
+            // Step 3: Check for duplicates using name + address
+            const placeKey = `${candidate.name}|${address}`.toLowerCase()
+            if (seenPlaces.has(placeKey)) {
+              console.log(`🔄 Duplicate place detected: ${candidate.name}, skipping`)
+              continue
+            }
+            seenPlaces.add(placeKey)
+            
             console.log(`✅ Found valid place in ${city}: ${candidate.name}`)
             
-            // Step 3: Extract real data
+            // Step 4: Extract real data
             let realImage = getUnsplashImage(place.name.toLowerCase(), index)
             if (candidate.photos && candidate.photos.length > 0) {
               const photoReference = candidate.photos[0].photo_reference
