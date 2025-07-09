@@ -5,8 +5,30 @@ interface ResultCardProps {
 }
 
 export default function ResultCard({ place }: ResultCardProps) {
+  const handleCardClick = () => {
+    // Create Google Maps search URL using place name and address
+    const searchQuery = `${place.name} ${place.address}`.trim()
+    const encodedQuery = encodeURIComponent(searchQuery)
+    const googleMapsUrl = `https://www.google.com/maps/search/${encodedQuery}`
+    
+    // Open Google Maps in a new tab
+    window.open(googleMapsUrl, '_blank', 'noopener,noreferrer')
+  }
+
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow">
+    <div 
+      className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all duration-200 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+      onClick={handleCardClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          handleCardClick()
+        }
+      }}
+      aria-label={`View ${place.name} on Google Maps`}
+    >
       {place.image && (
         <div className="aspect-video w-full bg-gray-200 dark:bg-gray-700">
           <img
@@ -22,9 +44,16 @@ export default function ResultCard({ place }: ResultCardProps) {
       )}
       
       <div className="p-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
-          {place.name}
-        </h3>
+        <div className="flex items-start justify-between mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex-1">
+            {place.name}
+          </h3>
+          <div className="flex-shrink-0 ml-2">
+            <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+          </div>
+        </div>
         
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
           {place.address}
@@ -54,6 +83,17 @@ export default function ResultCard({ place }: ResultCardProps) {
               }
             </span>
           )}
+        </div>
+        
+        {/* Click hint */}
+        <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Click to view on Google Maps
+          </p>
         </div>
       </div>
     </div>
