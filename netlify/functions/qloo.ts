@@ -11,6 +11,8 @@ interface QlooPlace {
   image?: string
   rating?: number
   distance?: number
+  explanation?: string
+  originalQuery: string
 }
 
 interface RequestBody {
@@ -138,7 +140,8 @@ function convertQlooResponse(qlooData: any, query: string, city: string) {
     address: entity.properties?.address || entity.disambiguation || `${city}`,
     rating: entity.properties?.business_rating || 4.5,
     image: entity.properties?.image?.url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=800&q=80',
-    explanation: `Recommended by Qloo's Taste AI™ based on "${query}". ${entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.'}`
+    explanation: `Recommended by Qloo's Taste AI™ based on "${query}". ${entity.properties?.description || 'A culturally similar place with matching vibe and atmosphere.'}`,
+    originalQuery: query // Pass the original query for better processing
   }))
 }
 
@@ -153,7 +156,7 @@ const generatePlacesWithOpenAI = async (query: string, city: string, limit: numb
 
   if (!process.env.OPENAI_API_KEY) {
     console.log('❌ OpenAI API key not configured, using hardcoded fallback')
-    return getHardcodedPlaces(city)
+    return getHardcodedPlaces(city, query)
   }
 
   console.log(`🤖 Generating places with OpenAI fallback for: "${query}" in ${city}`)
@@ -201,7 +204,7 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
       
       if (!content) {
         console.log('❌ OpenAI returned empty content')
-        return getHardcodedPlaces(city)
+        return getHardcodedPlaces(city, query)
       }
 
       try {
@@ -220,9 +223,15 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
           // Enrich with real Google Places data (photos and addresses)
           const enrichedPlaces = await enrichPlacesWithGoogleData(places.slice(0, limit), city)
           
-          placesCache.set(cacheKey, enrichedPlaces)
-          console.log(`🎯 Final result: ${enrichedPlaces.length} enriched places ready`)
-          return enrichedPlaces
+          // Add original query to each place
+          const placesWithQuery = enrichedPlaces.map(place => ({
+            ...place,
+            originalQuery: query
+          }))
+          
+          placesCache.set(cacheKey, placesWithQuery)
+          console.log(`🎯 Final result: ${placesWithQuery.length} enriched places ready`)
+          return placesWithQuery
         } else {
           console.log('❌ OpenAI returned invalid array format')
         }
@@ -236,8 +245,12 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
           console.log(`🔧 Manually extracted ${manualPlaces.length} places`)
           // Enrich manual places too
           const enrichedManualPlaces = await enrichPlacesWithGoogleData(manualPlaces, city)
-          placesCache.set(cacheKey, enrichedManualPlaces)
-          return enrichedManualPlaces
+          const manualPlacesWithQuery = enrichedManualPlaces.map(place => ({
+            ...place,
+            originalQuery: query
+          }))
+          placesCache.set(cacheKey, manualPlacesWithQuery)
+          return manualPlacesWithQuery
         }
       }
     } else {
@@ -249,7 +262,7 @@ CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanation
   }
 
   console.log('⚠️ OpenAI fallback failed, using hardcoded places')
-  return getHardcodedPlaces(city)
+  return getHardcodedPlaces(city, query)
 }
 
 // Manual extraction fallback when JSON parsing fails
@@ -277,7 +290,8 @@ const extractPlacesManually = (content: string, query: string, city: string, lim
             address,
             rating: rating ? parseFloat(rating) : 4.5,
             explanation,
-            image: getUnsplashImage(query, i)
+            image: getUnsplashImage(query, i),
+            originalQuery: query
           })
         }
       }
@@ -320,52 +334,169 @@ const getUnsplashImage = (query: string, index: number): string => {
 }
 
 // Hardcoded fallback when everything else fails
-const getHardcodedPlaces = (city: string): QlooPlace[] => {
+const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPlace[] => {
   return [
     {
       id: 'fallback-1',
       name: `Blue Bottle Coffee`,
       address: `Central ${city}`,
       image: 'https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=800',
-      rating: 4.5
+      rating: 4.5,
+      originalQuery: query
     },
     {
       id: 'fallback-2', 
       name: `Local Artisan Cafe`,
       address: `Downtown ${city}`,
       image: 'https://images.unsplash.com/photo-1554118811-1e0d58224f24?w=800',
-      rating: 4.3
+      rating: 4.3,
+      originalQuery: query
     },
     {
       id: 'fallback-3',
       name: `Specialty Coffee Roasters`,
       address: `Arts District, ${city}`, 
       image: 'https://images.unsplash.com/photo-1509042239860-f550ce710b93?w=800',
-      rating: 4.7
+      rating: 4.7,
+      originalQuery: query
     }
   ]
 }
 
-const generateExplanation = async (originalQuery: string, place: any): Promise<string> => {
-  // If explanation already exists (from OpenAI-generated places), use it
-  if (place.explanation && typeof place.explanation === 'string' && place.explanation.trim().length > 0) {
-    console.log(`📝 Using existing explanation for ${place.name}`)
-    return place.explanation
+// Enrich places with real Google Places data (photos and addresses)
+const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<QlooPlace[]> => {
+  if (!process.env.GOOGLE_MAPS_API_KEY) {
+    console.log('⚠️ Google Maps API key not available, using generated data as-is')
+    return places.map((place, index) => ({
+      id: place.id || `openai-${index}`,
+      name: place.name,
+      address: place.address,
+      rating: place.rating || 4.5,
+      explanation: place.explanation || 'Great place matching your taste',
+      image: getUnsplashImage('restaurant', index),
+      originalQuery: place.originalQuery || 'restaurants'
+    }))
   }
 
-  const cacheKey = `${originalQuery}-${place.name}`
+  console.log(`🌍 Enriching ${places.length} places with Google Places data...`)
+
+  const validatedPlaces: QlooPlace[] = []
+  const maxPlacesToCheck = Math.min(places.length, 10) // Limit to prevent timeouts
+  const targetPlaces = 3 // Stop when we have enough places
+
+  for (let index = 0; index < maxPlacesToCheck && validatedPlaces.length < targetPlaces; index++) {
+    const place = places[index]
+    
+    try {
+      // Step 1: Search for the place using Google Places Text Search
+      const searchQuery = `${place.name} ${city}`
+      const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos,geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`
+      
+      console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
+      
+      // Add timeout to Google API call
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      
+      const response = await fetch(searchUrl, { 
+        signal: controller.signal,
+        headers: { 'Accept': 'application/json' }
+      })
+      clearTimeout(timeoutId)
+      
+      if (response.ok) {
+        const data = await response.json()
+        
+        if (data.results && data.results.length > 0) {
+          // Step 2: Validate geographic proximity (check only first result for speed)
+          const candidate = data.results[0]
+          const address = candidate.formatted_address || ''
+          const cityLower = city.toLowerCase()
+          
+          // More flexible city matching
+          if (address.toLowerCase().includes(cityLower) || 
+              address.toLowerCase().includes(cityLower.replace(' ', '')) ||
+              candidate.name.toLowerCase().includes(cityLower)) {
+            
+            console.log(`✅ Found valid place in ${city}: ${candidate.name}`)
+            
+            // Step 3: Extract real data
+            let realImage = getUnsplashImage(place.name.toLowerCase(), index)
+            if (candidate.photos && candidate.photos.length > 0) {
+              const photoReference = candidate.photos[0].photo_reference
+              realImage = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
+              console.log(`📸 Found real photo for ${candidate.name}`)
+            }
+            
+            const realAddress = candidate.formatted_address
+            const googleRating = candidate.rating || place.rating || 4.5
+            
+            validatedPlaces.push({
+              id: place.id || `validated-${index}`,
+              name: candidate.name,
+              address: realAddress,
+              rating: googleRating,
+              explanation: place.explanation || 'Great place matching your taste',
+              image: realImage,
+              originalQuery: place.originalQuery || 'restaurants'
+            })
+            
+            console.log(`✅ Validated and enriched ${candidate.name} in ${city}`)
+          } else {
+            console.log(`❌ Place ${place.name} not in ${city}, skipping`)
+          }
+        }
+      }
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log(`⏰ Google Places API timeout for ${place.name}`)
+      } else {
+        console.log(`❌ Error validating ${place.name}:`, error.message)
+      }
+      continue // Skip this place and try the next one
+    }
+  }
+
+  // Step 4: If we don't have enough validated places, fill with OpenAI-generated places
+  if (validatedPlaces.length < targetPlaces) {
+    console.log(`⚠️ Only found ${validatedPlaces.length} validated places in ${city}, generating additional places with OpenAI`)
+    
+    const additionalNeeded = targetPlaces - validatedPlaces.length
+    try {
+      const openaiPlaces = await generatePlacesWithOpenAI(
+        places[0]?.originalQuery || 'restaurants', 
+        city, 
+        additionalNeeded
+      )
+      validatedPlaces.push(...openaiPlaces)
+    } catch (error) {
+      console.log(`❌ OpenAI fallback failed, using hardcoded places`)
+      const hardcodedPlaces = getHardcodedPlaces(city, places[0]?.originalQuery || 'restaurants')
+      validatedPlaces.push(...hardcodedPlaces.slice(0, additionalNeeded))
+    }
+  }
+
+  return validatedPlaces.slice(0, targetPlaces) // Ensure we don't return more than needed
+}
+
+// Generate better explanations using OpenAI
+const generateExplanation = async (originalQuery: string, place: any): Promise<string> => {
+  // If explanation already exists and mentions Qloo, enhance it with OpenAI
+  const hasQlooExplanation = place.explanation?.includes("Qloo's Taste AI™")
+
+  const cacheKey = `${originalQuery}-${place.name}-enhanced`
   
   if (explanationCache.has(cacheKey)) {
-    console.log(`📦 Using cached explanation for ${place.name}`)
+    console.log(`📦 Using cached enhanced explanation for ${place.name}`)
     return explanationCache.get(cacheKey)!
   }
 
   // Skip OpenAI if no API key
   if (!process.env.OPENAI_API_KEY) {
-    return 'Culturally similar place with matching vibe and atmosphere.'
+    return place.explanation || 'Culturally similar place with matching vibe and atmosphere.'
   }
 
-  console.log(`🤖 Generating explanation for ${place.name}`)
+  console.log(`🤖 Generating enhanced explanation for ${place.name}`)
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -379,21 +510,27 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
         messages: [
           {
             role: 'system',
-            content: 'You are a helpful assistant that explains why places are culturally similar. Keep responses to 1-2 sentences, focusing on atmosphere, style, or cultural elements.'
+            content: `You are a local food expert. Generate a personalized explanation (1-2 sentences) for why this place matches the user's taste query. Focus on atmosphere, style, cuisine type, and cultural elements. Be specific and engaging.`
           },
           {
             role: 'user',
-            content: `Why is "${place.name}" similar to the taste query "${originalQuery}"? Focus on cultural similarity, atmosphere, or style.`
+            content: `Why would someone who wants "${originalQuery}" enjoy "${place.name}"? Focus on what makes this place special and how it matches their taste preferences.`
           }
         ],
-        max_tokens: 60,
+        max_tokens: 80,
         temperature: 0.7
       })
     })
 
     if (response.ok) {
       const data = await response.json()
-      const explanation = data.choices[0]?.message?.content?.trim() || 'Similar cultural vibe and atmosphere.'
+      let explanation = data.choices[0]?.message?.content?.trim() || 'Similar cultural vibe and atmosphere.'
+      
+      // Add Qloo attribution if the place came from Qloo
+      if (hasQlooExplanation) {
+        explanation = `Recommended by Qloo's Taste AI™. ${explanation}`
+      }
+      
       explanationCache.set(cacheKey, explanation)
       return explanation
     }
@@ -401,99 +538,11 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
     console.error('OpenAI API error:', error)
   }
 
-  return 'Similar cultural vibe and atmosphere.'
+  return place.explanation || 'Similar cultural vibe and atmosphere.'
 }
 
 const getGooglePlacePhoto = (photoReference: string): string => {
   return `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
-}
-
-// Enrich places with real Google Places data (photos and addresses)
-const enrichPlacesWithGoogleData = async (places: any[], city: string): Promise<QlooPlace[]> => {
-  if (!process.env.GOOGLE_MAPS_API_KEY) {
-    console.log('⚠️ Google Maps API key not available, using generated data as-is')
-    return places.map((place, index) => ({
-      id: place.id || `openai-${index}`,
-      name: place.name,
-      address: place.address,
-      rating: place.rating || 4.5,
-      explanation: place.explanation || 'Great place matching your taste',
-      image: getUnsplashImage('restaurant', index)
-    }))
-  }
-
-  console.log(`🌍 Enriching ${places.length} places with Google Places data...`)
-
-  const enrichedPlaces = await Promise.all(
-    places.map(async (place, index) => {
-      try {
-        // Search for the place using Google Places Text Search
-        const searchQuery = `${place.name} ${city}`
-        const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos&key=${process.env.GOOGLE_MAPS_API_KEY}`
-        
-        console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
-        
-        const response = await fetch(searchUrl)
-        if (response.ok) {
-          const data = await response.json()
-          
-          if (data.results && data.results.length > 0) {
-            const googlePlace = data.results[0] // Take the first (most relevant) result
-            
-            // Get real photo if available
-            let realImage = getUnsplashImage(place.name.toLowerCase(), index) // fallback
-            if (googlePlace.photos && googlePlace.photos.length > 0) {
-              const photoReference = googlePlace.photos[0].photo_reference
-              realImage = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
-              console.log(`📸 Found real photo for ${place.name}`)
-            }
-            
-            // Get real address and rating
-            const realAddress = googlePlace.formatted_address || place.address
-            const googleRating = googlePlace.rating
-            const ratingCount = googlePlace.user_ratings_total
-            const realRating = googleRating || place.rating || 4.5
-            
-            // Enhanced logging for ratings
-            if (googleRating) {
-              console.log(`⭐ ${place.name}: Google rating ${googleRating} (${ratingCount || 'unknown'} reviews)`)
-            } else {
-              console.log(`⚠️ ${place.name}: No Google rating, using fallback ${realRating}`)
-            }
-            
-            console.log(`✅ Enriched ${place.name} with Google data (Rating: ${realRating})`)
-            
-            return {
-              id: place.id || `enriched-${index}`,
-              name: place.name,
-              address: realAddress,
-              rating: realRating,
-              explanation: place.explanation || 'Great place matching your taste',
-              image: realImage
-            }
-          } else {
-            console.log(`❌ No Google Places results for ${place.name}`)
-          }
-        } else {
-          console.log(`❌ Google Places API error for ${place.name}:`, response.status)
-        }
-      } catch (error) {
-        console.log(`❌ Error enriching ${place.name}:`, error)
-      }
-      
-      // Fallback to original data if Google enrichment fails
-      return {
-        id: place.id || `openai-${index}`,
-        name: place.name,
-        address: place.address,
-        rating: place.rating || 4.5,
-        explanation: place.explanation || 'Great place matching your taste',
-        image: getUnsplashImage(place.name.toLowerCase(), index)
-      }
-    })
-  )
-
-  return enrichedPlaces
 }
 
 export const handler: Handler = async (event, context) => {
