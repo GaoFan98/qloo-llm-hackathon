@@ -38,100 +38,106 @@ async function callQlooAPI(query: string, city: string, type: 'taste' | 'similar
   console.log('Using API URL:', QLOO_API_URL)
 
   try {
-    // Improved search strategies with better context and precision
-    const searchStrategies = [
-      // Strategy 1: Query with business context for better precision
-      {
-        endpoint: `${QLOO_API_URL}/search`,
-        params: new URLSearchParams({
-          'query': `${query} restaurants cafes venues ${city}`,
-          'limit': '10'
-        })
-      },
-      // Strategy 2: Themed dining/entertainment focus
-      {
-        endpoint: `${QLOO_API_URL}/search`,
-        params: new URLSearchParams({
-          'query': `${query} themed restaurant cafe bar ${city}`,
-          'limit': '10'
-        })
-      },
-      // Strategy 3: Location-specific dining
-      {
-        endpoint: `${QLOO_API_URL}/search`,
-        params: new URLSearchParams({
-          'query': `${city} ${query} dining entertainment`,
-          'limit': '10'
-        })
-      },
-      // Strategy 4: Fallback to general restaurants if specific search fails
-      {
-        endpoint: `${QLOO_API_URL}/search`,
-        params: new URLSearchParams({
-          'query': `${city} restaurants cafes`,
-          'limit': '10'
-        })
-      }
-    ]
+    // OPTIMIZATION: Add timeout to Qloo API calls
+    const qlooTimeout = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Qloo API timeout')), 5000) // 5 second timeout for Qloo
+    })
 
-    for (let i = 0; i < searchStrategies.length; i++) {
-      const strategy = searchStrategies[i]
-      const url = `${strategy.endpoint}?${strategy.params.toString()}`
-      
-      console.log(`🌐 Qloo API URL (Strategy ${i + 1}):`, url)
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'X-Api-Key': QLOO_API_KEY,
-          'Content-Type': 'application/json'
+    const qlooCall = async () => {
+      // Improved search strategies with better context and precision
+      const searchStrategies = [
+        // Strategy 1: City-first approach for better location relevance
+        {
+          endpoint: `${QLOO_API_URL}/search`,
+          params: new URLSearchParams({
+            'query': `${city} ${query} restaurants cafes bars dining`,
+            'limit': '15'
+          })
+        },
+        // Strategy 2: Query with specific location context
+        {
+          endpoint: `${QLOO_API_URL}/search`,
+          params: new URLSearchParams({
+            'query': `${query} in ${city} Japan dining venues`,
+            'limit': '15'
+          })
+        },
+        // Strategy 3: Fallback to just location-based restaurants
+        {
+          endpoint: `${QLOO_API_URL}/search`,
+          params: new URLSearchParams({
+            'query': `${city} Japan restaurants cafes bars`,
+            'limit': '10'
+          })
         }
-      })
+      ]
 
-      console.log(`📡 Qloo API Response status (Strategy ${i + 1}):`, response.status)
-
-      if (!response.ok) {
-        const errorText = await response.text()
-        console.log(`❌ Qloo API Error (Strategy ${i + 1}):`, errorText)
-        continue // Try next strategy
-      }
-
-      const data = await response.json()
-      
-      // Qloo API returns {"results": [...]}, not direct array
-      const entities = data.results || []
-      const resultCount = entities.length
-      
-      console.log(`📊 Qloo API Strategy ${i + 1} found:`, resultCount, 'results')
-      
-      if (resultCount > 0) {
-        console.log(`✅ Qloo API Success with Strategy ${i + 1}! Found`, resultCount, 'results')
+      for (let i = 0; i < searchStrategies.length; i++) {
+        const strategy = searchStrategies[i]
+        const url = `${strategy.endpoint}?${strategy.params.toString()}`
         
-        // Filter to relevant entities (places, destinations, localities with addresses)
-        const relevantPlaces = entities.filter(entity => {
-          const types = entity.types || []
-          const hasAddress = entity.properties?.address || entity.disambiguation
+        console.log(`🌐 Qloo API URL (Strategy ${i + 1}):`, url)
+
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: {
+            'X-Api-Key': QLOO_API_KEY,
+            'Content-Type': 'application/json'
+          }
+        })
+
+        console.log(`📡 Qloo API Response status (Strategy ${i + 1}):`, response.status)
+
+        if (!response.ok) {
+          const errorText = await response.text()
+          console.log(`❌ Qloo API Error (Strategy ${i + 1}):`, errorText)
+          continue // Try next strategy
+        }
+
+        const data = await response.json()
+        
+        // Qloo API returns {"results": [...]}, not direct array
+        const entities = data.results || []
+        const resultCount = entities.length
+        
+        console.log(`📊 Qloo API Strategy ${i + 1} found:`, resultCount, 'results')
+        
+        if (resultCount > 0) {
+          console.log(`✅ Qloo API Success with Strategy ${i + 1}! Found`, resultCount, 'results')
           
-          return (
-            types.includes('urn:entity:place') ||
-            types.includes('urn:entity:destination') ||
-            types.includes('urn:entity:locality')
-          ) && hasAddress
-        })
-        
-        console.log(`🏪 Filtered to ${relevantPlaces.length} relevant places`)
-        
-        if (relevantPlaces.length > 0) {
-          return { results: { entities: relevantPlaces } } // Convert to expected format
+          // Filter to relevant entities (places, destinations, localities with addresses)
+          const relevantPlaces = entities.filter(entity => {
+            const types = entity.types || []
+            const hasAddress = entity.properties?.address || entity.disambiguation
+            
+            return (
+              types.includes('urn:entity:place') ||
+              types.includes('urn:entity:destination') ||
+              types.includes('urn:entity:locality')
+            ) && hasAddress
+          })
+          
+          console.log(`🏪 Filtered to ${relevantPlaces.length} relevant places`)
+          
+          if (relevantPlaces.length > 0) {
+            return { results: { entities: relevantPlaces } } // Convert to expected format
+          }
         }
       }
+
+      // If all strategies return 0 results
+      console.log('⚠️ All Qloo search strategies returned 0 results')
+      return { results: { entities: [] } }
     }
 
-    // If all strategies return 0 results
-    console.log('⚠️ All Qloo search strategies returned 0 results')
-    return { results: { entities: [] } }
+    // Race between Qloo API call and timeout
+    return await Promise.race([qlooCall(), qlooTimeout])
 
   } catch (error) {
+    if (error.message === 'Qloo API timeout') {
+      console.log('⏱️ Qloo API timed out after 5 seconds, switching to fallback')
+      throw new Error('Qloo timeout')
+    }
     console.error('❌ Qloo API call failed:', error)
     throw error
   }
@@ -190,7 +196,13 @@ CRITICAL REQUIREMENTS:
 - NO fictional places, exhibitions, or temporary events
 - NO schools, hospitals, churches, government buildings
 - All places must be actual operating businesses you can verify exist
-- Focus on places that match the user's taste preference for dining/entertainment
+- Focus on places that match the user's specific taste preference or unique dining needs
+
+SPECIAL HANDLING FOR UNIQUE REQUESTS:
+- Pet-friendly requests: Look for cat cafes, dog-friendly restaurants, animal-themed venues
+- Interactive dining: Game cafes, board game restaurants, entertainment dining
+- Themed experiences: Character cafes, themed restaurants, immersive dining
+- Cultural experiences: Traditional venues, cultural dining experiences
 
 Return ONLY a valid JSON array with this exact format (no extra text):
 [
@@ -199,7 +211,7 @@ Return ONLY a valid JSON array with this exact format (no extra text):
     "name": "Real Restaurant/Cafe Name",
     "address": "Real street address in ${city}",
     "rating": 4.5,
-    "explanation": "Why this dining venue matches the taste (1-2 sentences about food/atmosphere)"
+    "explanation": "Why this venue matches the specific request (1-2 sentences about experience/atmosphere/special features)"
   }
 ]
 
@@ -207,7 +219,7 @@ NO markdown, NO explanations outside JSON. Real businesses only.`
           },
           {
             role: 'user',
-            content: `Find ${limit} REAL restaurants, cafes, bars, or food venues in ${city} that match this taste preference: "${query}". Focus on dining and entertainment only.`
+            content: `Find ${limit} REAL restaurants, cafes, bars, or entertainment venues in ${city} that specifically match this request: "${query}". Focus on places that would genuinely fulfill this exact dining/entertainment need.`
           }
         ],
         max_tokens: 800,
@@ -540,8 +552,8 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
       id: place.id || `openai-${index}`,
       name: place.name,
       address: place.address,
-      rating: place.rating, // Keep original rating if available, don't hardcode
-      reviewCount: undefined, // Don't show fake review counts
+      rating: place.rating,
+      reviewCount: undefined,
       explanation: place.explanation || 'Great place matching your taste',
       image: getUnsplashImage('restaurant', index),
       originalQuery: place.originalQuery || 'restaurants'
@@ -551,144 +563,137 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
   console.log(`🌍 Enriching ${places.length} places with Google Places data...`)
 
   const validatedPlaces: QlooPlace[] = []
-  const seenPlaces = new Set<string>() // Track duplicates by name + address
-  const maxPlacesToCheck = Math.min(places.length, 15) // Reduce from 50 to 15 to prevent timeouts
-  const targetPlaces = Math.min(maxResults, 15) // Cap to 15 max results
+  const seenPlaces = new Set<string>()
+  
+  // OPTIMIZATION 1: Reduce processing limits to prevent timeouts
+  const maxPlacesToCheck = Math.min(places.length, 8) // Reduced from 15 to 8
+  const targetPlaces = Math.min(maxResults, 8) // Reduced from 15 to 8
 
-  for (let index = 0; index < maxPlacesToCheck && validatedPlaces.length < targetPlaces; index++) {
-    const place = places[index]
-    
-    try {
-      // Step 1: Search for the place using Google Places Text Search - make it semantic and dynamic
-      const queryTokens = (place.originalQuery || '').toLowerCase().split(' ').filter(token => token.length > 2)
-      const contextKeywords = queryTokens.slice(0, 2).join(' ') || 'restaurant' // Use first 2 meaningful words from query
-      const searchQuery = `${place.name} ${contextKeywords} ${city}`
-      const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos,geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`
-      
-      console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
-      
-      // Add timeout to Google API calls
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
-      
-      const response = await fetch(searchUrl, { 
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'QlooTasteDiscovery/1.0'
-        }
-      })
-      clearTimeout(timeoutId)
-      
-      if (!response.ok) {
-        console.log(`❌ Google Places API error for ${place.name}: ${response.status}`)
-        continue
-      }
+  // OPTIMIZATION 2: Process places in parallel batches instead of sequential
+  const batchSize = 3
+  const batches = []
+  
+  for (let i = 0; i < maxPlacesToCheck; i += batchSize) {
+    batches.push(places.slice(i, i + batchSize))
+  }
 
-      const data = await response.json()
+  for (const batch of batches) {
+    if (validatedPlaces.length >= targetPlaces) break
 
-      if (data.results && data.results.length > 0) {
-        // Step 2: Find the most relevant result (check only top 2 instead of 3)
-        let candidate = null
+    // Process batch in parallel
+    const batchPromises = batch.map(async (place, batchIndex) => {
+      try {
+        // OPTIMIZATION 3: Shorter timeout per API call
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 2000) // Reduced from 3000ms to 2000ms
         
-        for (const result of data.results.slice(0, 2)) { // Reduce from 3 to 2
+        const queryTokens = (place.originalQuery || '').toLowerCase().split(' ').filter(token => token.length > 2)
+        const contextKeywords = queryTokens.slice(0, 2).join(' ') || 'restaurant'
+        const searchQuery = `${place.name} ${contextKeywords} ${city}`
+        const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos&key=${process.env.GOOGLE_MAPS_API_KEY}`
+        
+        console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
+        
+        const response = await fetch(searchUrl, { 
+          signal: controller.signal,
+          headers: { 'User-Agent': 'QlooTasteDiscovery/1.0' }
+        })
+        clearTimeout(timeoutId)
+        
+        if (!response.ok) {
+          console.log(`❌ Google Places API error for ${place.name}: ${response.status}`)
+          return null
+        }
+
+        const data = await response.json()
+
+        if (data.results && data.results.length > 0) {
+          // OPTIMIZATION 4: Check only first result instead of multiple
+          const result = data.results[0]
           const address = result.formatted_address || ''
           const cityLower = city.toLowerCase()
           const types = result.types || []
           const businessName = result.name || ''
-          const originalPlaceName = place.name || ''
           
-          // Step 2a: Geographic validation
+          // Quick validation
           const isInCity = address.toLowerCase().includes(cityLower) || 
                           address.toLowerCase().includes(cityLower.replace(' ', ''))
           
           if (!isInCity) {
             console.log(`📍 Place "${businessName}" not in ${city}, checking next result...`)
-            continue
+            return null
           }
           
-          // Step 2b: Relevance validation
-          const isRelevant = checkBusinessRelevance(originalPlaceName, businessName, types, place.originalQuery || searchQuery)
+          const isRelevant = checkBusinessRelevance(place.name, businessName, types, place.originalQuery || searchQuery)
           
           if (!isRelevant) {
-            continue
+            console.log(`❌ Place ${place.name} not relevant, skipping`)
+            return null
           }
           
-          // Step 2c: Check for duplicates
+          // Check for duplicates
           const placeKey = `${businessName}|${address}`
           if (seenPlaces.has(placeKey)) {
             console.log(`🔄 Duplicate detected: ${businessName}, skipping`)
-            continue
+            return null
           }
           
-          candidate = result
           seenPlaces.add(placeKey)
-          break // Found a good match, stop searching
-        }
 
-        if (candidate) {
-          // Step 3: Get place photo (with fallback)
-          let imageUrl = getUnsplashImage('restaurant', index) // Default fallback
-          
-          if (candidate.photos && candidate.photos.length > 0) {
-            const photoReference = candidate.photos[0].photo_reference
+          // OPTIMIZATION 5: Simplified image handling
+          let imageUrl = getUnsplashImage('restaurant', Math.floor(Math.random() * 10))
+          if (result.photos && result.photos.length > 0) {
+            const photoReference = result.photos[0].photo_reference
             imageUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
           }
 
-          // Step 4: Create enriched place object
-          const enrichedPlace: QlooPlace = {
-            id: place.id || `google-${candidate.place_id}`,
-            name: candidate.name,
-            address: candidate.formatted_address,
-            rating: candidate.rating, // Only use real rating from Google, no fallback
-            reviewCount: candidate.user_ratings_total, // Only use real review count from Google, no fallback
+          console.log(`✅ Validated: ${businessName} in ${city}`)
+          
+          return {
+            id: place.id || `google-${result.place_id}`,
+            name: businessName,
+            address: address,
+            rating: result.rating,
+            reviewCount: result.user_ratings_total,
             explanation: place.explanation || 'Great place matching your taste',
             image: imageUrl,
             originalQuery: place.originalQuery || 'restaurants'
           }
-
-          validatedPlaces.push(enrichedPlace)
-          console.log(`✅ Validated: ${candidate.name} in ${city}`)
-        } else {
-          console.log(`❌ Place ${place.name} not in ${city}, skipping`)
         }
-      } else {
-        console.log(`❌ No Google Places results for: ${place.name}`)
+        
+        return null
+      } catch (error: any) {
+        if (error.name === 'AbortError') {
+          console.log(`⏱️ Timeout validating ${place.name}, skipping`)
+        } else {
+          console.log(`❌ Error validating ${place.name}: ${error.message}`)
+        }
+        return null
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.log(`⏱️ Timeout validating ${place.name}, skipping`)
-      } else {
-        console.log(`❌ Error validating ${place.name}: ${error.message}`)
-      }
-      continue // Continue to next place on error
-    }
+    })
+
+    // Wait for batch to complete
+    const batchResults = await Promise.all(batchPromises)
     
-    // Add small delay to avoid rate limiting, but only if we're not at the limit
-    if (index < maxPlacesToCheck - 1 && validatedPlaces.length < targetPlaces) {
-      await new Promise(resolve => setTimeout(resolve, 100)) // Reduce from 200ms to 100ms
+    // Add successful results
+    for (const result of batchResults) {
+      if (result && validatedPlaces.length < targetPlaces) {
+        validatedPlaces.push(result)
+      }
     }
+
+    // OPTIMIZATION 6: No delay between batches for speed
+    // Removed: await new Promise(resolve => setTimeout(resolve, 100))
   }
 
-  // Step 4: If we don't have any validated places, fill with OpenAI-generated places
+  // Fallback handling - simplified and faster
   if (validatedPlaces.length === 0) {
-    console.log(`⚠️ Found 0 validated places in ${city}, generating places with OpenAI`)
-    
-    try {
-      const openaiPlaces = await generatePlacesWithOpenAI(
-        places[0]?.originalQuery || 'restaurants', 
-        city, 
-        Math.min(maxResults, 10) // Keep OpenAI reasonable
-      )
-      validatedPlaces.push(...openaiPlaces)
-    } catch (error) {
-      console.log(`❌ OpenAI fallback failed, using hardcoded places`)
-      const hardcodedPlaces = getHardcodedPlaces(city, places[0]?.originalQuery || 'restaurants')
-      validatedPlaces.push(...hardcodedPlaces.slice(0, 3))
-    }
+    console.log(`⚠️ Found 0 validated places in ${city}, returning empty for OpenAI fallback`)
+    return [] // Return empty array so main handler can call OpenAI properly
   }
 
   console.log(`🎯 Returning ${validatedPlaces.length} enriched places (requested: ${maxResults})`)
-  return validatedPlaces // Return all validated places, no slicing
+  return validatedPlaces
 }
 
 // Generate better explanations using OpenAI
@@ -774,129 +779,179 @@ export const handler: Handler = async (event, context) => {
     }
   }
 
-  try {
-    const body: RequestBody = JSON.parse(event.body || '{}')
-    const { type, place_id, query, city, limit = 50 } = body // Increase default limit
+  // OPTIMIZATION: Add function timeout protection
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('Function timeout')), 6000) // Reduced to 6 seconds to prevent Netlify timeout
+  })
 
-    if (!city) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ error: 'City is required' })
-      }
-    }
+  const mainProcessing = async () => {
+    try {
+      const body: RequestBody = JSON.parse(event.body || '{}')
+      const { type, place_id, query, city, limit = 50 } = body
 
-    let places: QlooPlace[] = []
-    const searchQuery = query || place_id || ''
-
-    // 🚀 SMART FALLBACK SYSTEM
-    console.log('🎯 Starting smart recommendation system...')
-    
-    // Step 1: Try Qloo API first
-    if (type === 'taste' && searchQuery) {
-      try {
-        console.log('🔄 Attempting Qloo API...')
-        const qlooData = await callQlooAPI(searchQuery, city, 'taste')
-        const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
-        
-        if (qlooPlaces.length > 0) {
-          console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} places`)
-          places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
-        } else {
-          console.log('⚠️ Qloo API returned no results, falling back to OpenAI')
-        }
-      } catch (error) {
-        console.log('❌ Qloo API failed, falling back to OpenAI:', error.message)
-      }
-    }
-    
-    // Handle similar places (place_id based searches)
-    if (type === 'similar' && searchQuery) {
-      try {
-        console.log('🔄 Attempting Qloo API for similar places...')
-        const qlooData = await callQlooAPI(searchQuery, city, 'similar')
-        const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
-        
-        if (qlooPlaces.length > 0) {
-          console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} similar places`)
-          places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
-        } else {
-          console.log('⚠️ Qloo API returned no similar places, falling back to OpenAI')
-        }
-      } catch (error) {
-        console.log('❌ Qloo API failed for similar places, falling back to OpenAI:', error.message)
-      }
-    }
-    
-    // Step 2: If Qloo failed or returned no results, use OpenAI fallback
-    if (places.length === 0) {
-      console.log('🤖 Using OpenAI fallback system')
-      places = await generatePlacesWithOpenAI(searchQuery, city, Math.min(limit, 10)) // Keep OpenAI reasonable
-    }
-
-    console.log(`🎯 Final result: ${places.length} enriched places ready`)
-    console.log(`📍 Found ${places.length} places for "${searchQuery}" in ${city}`)
-
-    // Generate explanations for all places (no limit)
-    const processedPlaces = await Promise.all(
-      places.map(async (place) => {
-        // Always generate personalized explanations with OpenAI instead of using generic fallbacks
-        const explanation = await generateExplanation(searchQuery, place)
-        
+      if (!city) {
         return {
-          id: place.id,
-          name: place.name,
-          address: place.address,
-          image: place.image,
-          explanation,
-          rating: place.rating,
-          reviewCount: place.reviewCount,
-          distance: place.distance
+          statusCode: 400,
+          body: JSON.stringify({ error: 'City is required' })
         }
-      })
-    )
+      }
 
-    // Detect source based on place characteristics
-    const isQlooSource = places.length > 0 && (
-      // Check if any place has explanation mentioning Qloo
-      places.some(place => place.explanation?.includes("Qloo's Taste AI™")) ||
-      // Check if any place ID looks like a UUID (Qloo entity ID format)
-      places.some(place => place.id && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(place.id))
-    )
+      let places: QlooPlace[] = []
+      const searchQuery = query || place_id || ''
 
-    // Generate overall explanation for the search results
-    let overallExplanation = '';
-    if (processedPlaces.length > 0) {
-      if (isQlooSource) {
-        overallExplanation = `Based on your taste for "${searchQuery}", these places in ${city} share similar cultural vibes, atmospheres, and style preferences.`;
-      } else {
-        overallExplanation = `These ${city} establishments match your preference for "${searchQuery}" with similar ambience, cultural elements, and dining experiences.`;
+      console.log('🎯 Starting smart recommendation system...')
+      
+      // Step 1: Try Qloo API first with timeout
+      if (type === 'taste' && searchQuery) {
+        try {
+          console.log('🔄 Attempting Qloo API...')
+          const qlooData = await callQlooAPI(searchQuery, city, 'taste')
+          const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
+          
+          if (qlooPlaces.length > 0) {
+            console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} places`)
+            places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
+            
+            // If enrichment fails (returns empty), fall back to OpenAI
+            if (places.length === 0) {
+              console.log('⚠️ Qloo places failed Google validation, falling back to OpenAI')
+            }
+          } else {
+            console.log('⚠️ Qloo API returned no results, falling back to OpenAI')
+          }
+        } catch (error) {
+          if (error.message === 'Qloo timeout') {
+            console.log('⏱️ Qloo API timed out, immediately switching to OpenAI fallback')
+          } else {
+            console.log('❌ Qloo API failed, falling back to OpenAI:', error.message)
+          }
+        }
+      }
+      
+      // Handle similar places (place_id based searches)  
+      if (type === 'similar' && searchQuery && places.length === 0) {
+        try {
+          console.log('🔄 Attempting Qloo API for similar places...')
+          const qlooData = await callQlooAPI(searchQuery, city, 'similar')
+          const qlooPlaces = convertQlooResponse(qlooData, searchQuery, city)
+          
+          if (qlooPlaces.length > 0) {
+            console.log(`✅ Qloo API Success! Got ${qlooPlaces.length} similar places`)
+            places = await enrichPlacesWithGoogleData(qlooPlaces, city, limit)
+            
+            // If enrichment fails (returns empty), fall back to OpenAI
+            if (places.length === 0) {
+              console.log('⚠️ Qloo similar places failed Google validation, falling back to OpenAI')
+            }
+          } else {
+            console.log('⚠️ Qloo API returned no similar places, falling back to OpenAI')
+          }
+        } catch (error) {
+          if (error.message === 'Qloo timeout') {
+            console.log('⏱️ Qloo API timed out for similar places, immediately switching to OpenAI fallback')
+          } else {
+            console.log('❌ Qloo API failed for similar places, falling back to OpenAI:', error.message)
+          }
+        }
+      }
+      
+      // Step 2: If Qloo failed, timed out, or returned no valid results, use OpenAI fallback
+      if (places.length === 0) {
+        console.log('🤖 Using OpenAI fallback system for query:', searchQuery)
+        places = await generatePlacesWithOpenAI(searchQuery, city, Math.min(limit, 5)) // Use actual user query
+      }
+
+      console.log(`🎯 Final result: ${places.length} enriched places ready`)
+      console.log(`📍 Found ${places.length} places for "${searchQuery}" in ${city}`)
+
+      // OPTIMIZATION: Generate explanations only for first 3 places to save time
+      const processedPlaces = await Promise.all(
+        places.map(async (place, index) => {
+          let explanation = place.explanation || 'Great place matching your taste'
+          
+          // Only generate enhanced explanations for first 3 places
+          if (index < 3 && process.env.OPENAI_API_KEY) {
+            try {
+              explanation = await generateExplanation(searchQuery, place)
+            } catch (error) {
+              console.log(`🤖 Generating enhanced explanation for ${place.name}`)
+              // Use existing explanation on error
+            }
+          }
+          
+          return {
+            id: place.id,
+            name: place.name,
+            address: place.address,
+            image: place.image,
+            explanation,
+            rating: place.rating,
+            reviewCount: place.reviewCount,
+            distance: place.distance
+          }
+        })
+      )
+
+      // Detect source based on place characteristics
+      const isQlooSource = places.length > 0 && (
+        places.some(place => place.explanation?.includes("Qloo's Taste AI™")) ||
+        places.some(place => place.id && /^[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}$/i.test(place.id))
+      )
+
+      // Generate overall explanation for the search results
+      let overallExplanation = '';
+      if (processedPlaces.length > 0) {
+        if (isQlooSource) {
+          overallExplanation = `Based on your taste for "${searchQuery}", these places in ${city} share similar cultural vibes, atmospheres, and style preferences.`;
+        } else {
+          overallExplanation = `These ${city} establishments match your preference for "${searchQuery}" with similar ambience, cultural elements, and dining experiences.`;
+        }
+      }
+
+      return {
+        statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Headers': 'Content-Type',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        },
+        body: JSON.stringify({
+          places: processedPlaces,
+          query: searchQuery,
+          city,
+          source: isQlooSource ? 'qloo' : 'openai-fallback',
+          explanation: overallExplanation
+        })
+      }
+
+    } catch (error) {
+      console.error('Handler error:', error)
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ 
+          error: 'Internal server error',
+          details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        })
       }
     }
+  }
 
+  // Race between main processing and timeout
+  try {
+    const result = await Promise.race([mainProcessing(), timeoutPromise])
+    return result as any // Type assertion to fix TypeScript error
+  } catch (error) {
+    console.error('Function timed out or failed:', error)
     return {
-      statusCode: 200,
+      statusCode: 408,
       headers: {
         'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Headers': 'Content-Type',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS'
+        'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify({
-        places: processedPlaces,
-        query: searchQuery,
-        city,
-        source: isQlooSource ? 'qloo' : 'openai-fallback',
-        explanation: overallExplanation
-      })
-    }
-
-  } catch (error) {
-    console.error('Handler error:', error)
-    return {
-      statusCode: 500,
       body: JSON.stringify({ 
-        error: 'Internal server error',
-        details: process.env.NODE_ENV === 'development' ? error.message : undefined
+        error: 'Request timeout - please try again',
+        details: 'The search took too long to complete'
       })
     }
   }
