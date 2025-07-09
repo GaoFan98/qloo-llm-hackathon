@@ -37,29 +37,37 @@ async function callQlooAPI(query: string, city: string, type: 'taste' | 'similar
   console.log('Using API URL:', QLOO_API_URL)
 
   try {
-    // Simplified search strategies that work with Qloo's actual data
+    // Improved search strategies with better context and precision
     const searchStrategies = [
-      // Strategy 1: Simple query with taste preference
+      // Strategy 1: Query with business context for better precision
       {
         endpoint: `${QLOO_API_URL}/search`,
         params: new URLSearchParams({
-          'query': query,
+          'query': `${query} restaurants cafes venues ${city}`,
           'limit': '10'
         })
       },
-      // Strategy 2: Add city for location context
+      // Strategy 2: Themed dining/entertainment focus
       {
         endpoint: `${QLOO_API_URL}/search`,
         params: new URLSearchParams({
-          'query': `${query} ${city}`,
+          'query': `${query} themed restaurant cafe bar ${city}`,
           'limit': '10'
         })
       },
-      // Strategy 3: Try with restaurants keyword
+      // Strategy 3: Location-specific dining
       {
         endpoint: `${QLOO_API_URL}/search`,
         params: new URLSearchParams({
-          'query': `${city} restaurants`,
+          'query': `${city} ${query} dining entertainment`,
+          'limit': '10'
+        })
+      },
+      // Strategy 4: Fallback to general restaurants if specific search fails
+      {
+        endpoint: `${QLOO_API_URL}/search`,
+        params: new URLSearchParams({
+          'query': `${city} restaurants cafes`,
           'limit': '10'
         })
       }
@@ -173,22 +181,31 @@ const generatePlacesWithOpenAI = async (query: string, city: string, limit: numb
         messages: [
           {
             role: 'system',
-            content: `You are a local expert for ${city}. Generate exactly ${limit} real place recommendations that match the user's taste. Return ONLY a valid JSON array with this exact format (no extra text):
+            content: `You are a local dining and entertainment expert for ${city}. Generate exactly ${limit} REAL places that currently exist and operate in ${city}.
+
+CRITICAL REQUIREMENTS:
+- ONLY restaurants, cafes, bars, themed dining, entertainment venues, or food-related businesses
+- NO fictional places, exhibitions, or temporary events
+- NO schools, hospitals, churches, government buildings
+- All places must be actual operating businesses you can verify exist
+- Focus on places that match the user's taste preference for dining/entertainment
+
+Return ONLY a valid JSON array with this exact format (no extra text):
 [
   {
     "id": "unique-id-1",
-    "name": "Actual Place Name",
+    "name": "Real Restaurant/Cafe Name",
     "address": "Real street address in ${city}",
     "rating": 4.5,
-    "explanation": "Why this place matches the taste (1-2 sentences)"
+    "explanation": "Why this dining venue matches the taste (1-2 sentences about food/atmosphere)"
   }
 ]
 
-CRITICAL: Return ONLY the JSON array, no markdown, no extra text, no explanations. Make sure all places are real and currently operating in ${city}.`
+NO markdown, NO explanations outside JSON. Real businesses only.`
           },
           {
             role: 'user',
-            content: `Find ${limit} places in ${city} that match this taste: "${query}"`
+            content: `Find ${limit} REAL restaurants, cafes, bars, or food venues in ${city} that match this taste preference: "${query}". Focus on dining and entertainment only.`
           }
         ],
         max_tokens: 800,
@@ -363,6 +380,152 @@ const getHardcodedPlaces = (city: string, query: string = 'restaurants'): QlooPl
   ]
 }
 
+// Enhanced relevance checking with positive indicators
+const checkBusinessRelevance = (originalPlaceName: string, businessName: string, businessTypes: string[], originalQuery: string): boolean => {
+  // Convert to lowercase for comparison - add null checks
+  const originalLower = (originalPlaceName || '').toLowerCase()
+  const businessLower = (businessName || '').toLowerCase()
+  const queryLower = (originalQuery || '').toLowerCase()
+  const safeBusinessTypes = businessTypes || []
+  
+  // CRITICAL: Smart semantic validation to prevent hallucinations (replaces hardcoded approach)
+  const relevanceCheck = validateSemanticRelevance(businessName, businessTypes, originalQuery)
+  if (!relevanceCheck.isRelevant) {
+    console.log(`🚫 Semantic mismatch: ${businessName} doesn't match "${originalQuery}" (${relevanceCheck.reason})`)
+    return false
+  }
+  
+  // Positive indicators - prefer appropriate business types
+  const businessKeywords = ['restaurant', 'cafe', 'bar', 'bistro', 'eatery', 'diner', 'grill', 'kitchen', 'tavern', 'pub', 'lounge', 'izakaya', 'ramen', 'sushi', 'pizza', 'burger', 'food', 'dining', 'bakery', 'brewery', 'hotel', 'hostel', 'museum', 'gallery', 'theater', 'cinema', 'gym', 'spa', 'shop', 'store', 'market', 'university', 'school', 'library', 'park', 'center', 'studio', 'club', 'venue']
+  const entertainmentKeywords = ['theater', 'cinema', 'arcade', 'club', 'karaoke', 'gaming', 'entertainment', 'theme', 'experience', 'gallery', 'museum']
+  
+  // Check for business indicators
+  const hasBusinessIndicators = businessKeywords.some(keyword => businessLower.includes(keyword)) ||
+                                safeBusinessTypes.length > 0 // Any Google Places type is a good sign
+  
+  const hasEntertainmentIndicators = entertainmentKeywords.some(keyword => businessLower.includes(keyword))
+  
+  // If it has indicators, it's likely legitimate
+  if (hasBusinessIndicators || hasEntertainmentIndicators) {
+    console.log(`✅ Found relevant venue: ${businessName} (business/entertainment indicators)`)
+    return true
+  }
+  
+  // Skip obviously wrong categories only
+  const obviouslyWrongKeywords = ['hospital', 'clinic', 'medical', 'doctor', 'dental', 'pharmacy', 'church', 'temple', 'mosque', 'synagogue', 'government', 'city hall', 'embassy', 'school', 'university', 'college']
+  
+  // Only filter out if query is clearly different category AND business is clearly wrong category
+  const queryIsNotMedical = !queryLower.includes('medical') && !queryLower.includes('hospital') && !queryLower.includes('doctor')
+  const businessIsMedical = obviouslyWrongKeywords.slice(0, 6).some(keyword => businessLower.includes(keyword))
+  
+  if (queryIsNotMedical && businessIsMedical) {
+    console.log(`🚫 Filtering out medical venue: ${businessName} for non-medical query`)
+    return false
+  }
+  
+  // Allow everything else - let semantic validation handle the details
+  return true
+}
+
+// NEW: General semantic validation (replaces hardcoded cuisine matching)
+const validateSemanticRelevance = (businessName: string, businessTypes: string[], originalQuery: string): { isRelevant: boolean, reason?: string } => {
+  const businessLower = (businessName || '').toLowerCase()
+  const queryLower = (originalQuery || '').toLowerCase()
+  const safeBusinessTypes = businessTypes || []
+  
+  // Extract key concepts from the query
+  const queryTokens = queryLower.split(' ').filter(token => token.length > 2)
+  const businessTokens = businessLower.split(' ').filter(token => token.length > 2)
+  
+  // Google Places types mapping to common concepts
+  const typeCategories = {
+    'food': ['restaurant', 'cafe', 'bar', 'food', 'meal_takeaway', 'bakery', 'meal_delivery'],
+    'accommodation': ['lodging', 'hotel', 'hostel', 'guest_house'],
+    'education': ['school', 'university', 'library', 'educational_institution'],
+    'entertainment': ['amusement_park', 'movie_theater', 'night_club', 'casino', 'bowling_alley'],
+    'shopping': ['shopping_mall', 'store', 'clothing_store', 'book_store', 'electronics_store'],
+    'health': ['hospital', 'doctor', 'dentist', 'pharmacy', 'health', 'gym'],
+    'culture': ['museum', 'art_gallery', 'library', 'cultural_center'],
+    'worship': ['church', 'place_of_worship', 'temple', 'mosque', 'synagogue'],
+    'transport': ['airport', 'bus_station', 'subway_station', 'train_station'],
+    'finance': ['bank', 'atm', 'insurance_agency', 'accounting'],
+    'government': ['city_hall', 'local_government_office', 'embassy', 'courthouse']
+  }
+  
+  // Find what category the query is asking for
+  let queryCategory = 'general'
+  for (const [category, types] of Object.entries(typeCategories)) {
+    if (queryTokens.some(token => types.some(type => type.includes(token) || token.includes(type)))) {
+      queryCategory = category
+      break
+    }
+  }
+  
+  // Check if business types match the query category
+  if (queryCategory !== 'general') {
+    const expectedTypes = typeCategories[queryCategory]
+    const businessMatchesCategory = safeBusinessTypes.some(type => expectedTypes.includes(type))
+    
+    if (!businessMatchesCategory) {
+      // Check if business name contains category-relevant keywords
+      const nameMatchesCategory = expectedTypes.some(keyword => businessLower.includes(keyword))
+      
+      if (!nameMatchesCategory) {
+        return { 
+          isRelevant: false, 
+          reason: `business type mismatch - expected ${queryCategory}, got ${safeBusinessTypes.join(', ')}` 
+        }
+      }
+    }
+  }
+  
+  // Check for basic keyword overlap (semantic similarity proxy)
+  const commonTokens = queryTokens.filter(qToken => 
+    businessTokens.some(bToken => 
+      qToken.includes(bToken) || 
+      bToken.includes(qToken) ||
+      levenshteinDistance(qToken, bToken) <= 2 // Allow for small spelling differences
+    )
+  )
+  
+  // If there's some semantic overlap or it's a general query, allow it
+  if (commonTokens.length > 0 || queryCategory === 'general') {
+    return { isRelevant: true }
+  }
+  
+  // If no obvious connection, be cautious but don't block everything
+  return { isRelevant: true } // Default to allowing rather than blocking
+}
+
+// Simple Levenshtein distance for fuzzy matching
+const levenshteinDistance = (str1: string, str2: string): number => {
+  const matrix = []
+  
+  for (let i = 0; i <= str2.length; i++) {
+    matrix[i] = [i]
+  }
+  
+  for (let j = 0; j <= str1.length; j++) {
+    matrix[0][j] = j
+  }
+  
+  for (let i = 1; i <= str2.length; i++) {
+    for (let j = 1; j <= str1.length; j++) {
+      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1]
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1, // substitution
+          matrix[i][j - 1] + 1,     // insertion
+          matrix[i - 1][j] + 1      // deletion
+        )
+      }
+    }
+  }
+  
+  return matrix[str2.length][str1.length]
+}
+
 // Enrich places with real Google Places data (photos and addresses)
 const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResults: number = 50): Promise<QlooPlace[]> => {
   if (!process.env.GOOGLE_MAPS_API_KEY) {
@@ -382,87 +545,119 @@ const enrichPlacesWithGoogleData = async (places: any[], city: string, maxResult
 
   const validatedPlaces: QlooPlace[] = []
   const seenPlaces = new Set<string>() // Track duplicates by name + address
-  const maxPlacesToCheck = Math.min(places.length, 50) // Check up to 50 places to avoid timeouts
-  const targetPlaces = maxResults // Use the requested limit, but don't stop early
+  const maxPlacesToCheck = Math.min(places.length, 15) // Reduce from 50 to 15 to prevent timeouts
+  const targetPlaces = Math.min(maxResults, 15) // Cap to 15 max results
 
-  for (let index = 0; index < maxPlacesToCheck; index++) {
+  for (let index = 0; index < maxPlacesToCheck && validatedPlaces.length < targetPlaces; index++) {
     const place = places[index]
     
     try {
-      // Step 1: Search for the place using Google Places Text Search
-      const searchQuery = `${place.name} ${city}`
+      // Step 1: Search for the place using Google Places Text Search - make it semantic and dynamic
+      const queryTokens = (place.originalQuery || '').toLowerCase().split(' ').filter(token => token.length > 2)
+      const contextKeywords = queryTokens.slice(0, 2).join(' ') || 'restaurant' // Use first 2 meaningful words from query
+      const searchQuery = `${place.name} ${contextKeywords} ${city}`
       const searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(searchQuery)}&fields=name,formatted_address,rating,user_ratings_total,photos,geometry&key=${process.env.GOOGLE_MAPS_API_KEY}`
       
       console.log(`🔍 Searching Google Places for: "${searchQuery}"`)
       
-      // Add timeout to Google API call
+      // Add timeout to Google API calls
       const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 5000) // 5 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 3000) // 3 second timeout
       
       const response = await fetch(searchUrl, { 
         signal: controller.signal,
-        headers: { 'Accept': 'application/json' }
+        headers: {
+          'User-Agent': 'QlooTasteDiscovery/1.0'
+        }
       })
       clearTimeout(timeoutId)
       
-      if (response.ok) {
-        const data = await response.json()
+      if (!response.ok) {
+        console.log(`❌ Google Places API error for ${place.name}: ${response.status}`)
+        continue
+      }
+
+      const data = await response.json()
+
+      if (data.results && data.results.length > 0) {
+        // Step 2: Find the most relevant result (check only top 2 instead of 3)
+        let candidate = null
         
-        if (data.results && data.results.length > 0) {
-          // Step 2: Validate geographic proximity (check only first result for speed)
-          const candidate = data.results[0]
-          const address = candidate.formatted_address || ''
+        for (const result of data.results.slice(0, 2)) { // Reduce from 3 to 2
+          const address = result.formatted_address || ''
           const cityLower = city.toLowerCase()
+          const types = result.types || []
+          const businessName = result.name || ''
+          const originalPlaceName = place.name || ''
           
-          // More flexible city matching
-          if (address.toLowerCase().includes(cityLower) || 
-              address.toLowerCase().includes(cityLower.replace(' ', '')) ||
-              candidate.name.toLowerCase().includes(cityLower)) {
-            
-            // Step 3: Check for duplicates using name + address
-            const placeKey = `${candidate.name}|${address}`.toLowerCase()
-            if (seenPlaces.has(placeKey)) {
-              console.log(`🔄 Duplicate place detected: ${candidate.name}, skipping`)
-              continue
-            }
-            seenPlaces.add(placeKey)
-            
-            console.log(`✅ Found valid place in ${city}: ${candidate.name}`)
-            
-            // Step 4: Extract real data
-            let realImage = getUnsplashImage(place.name.toLowerCase(), index)
-            if (candidate.photos && candidate.photos.length > 0) {
-              const photoReference = candidate.photos[0].photo_reference
-              realImage = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
-              console.log(`📸 Found real photo for ${candidate.name}`)
-            }
-            
-            const realAddress = candidate.formatted_address
-            const googleRating = candidate.rating || place.rating || 4.5
-            
-            validatedPlaces.push({
-              id: place.id || `validated-${index}`,
-              name: candidate.name,
-              address: realAddress,
-              rating: googleRating,
-              explanation: place.explanation || 'Great place matching your taste',
-              image: realImage,
-              originalQuery: place.originalQuery || 'restaurants'
-            })
-            
-            console.log(`✅ Validated and enriched ${candidate.name} in ${city}`)
-          } else {
-            console.log(`❌ Place ${place.name} not in ${city}, skipping`)
+          // Step 2a: Geographic validation
+          const isInCity = address.toLowerCase().includes(cityLower) || 
+                          address.toLowerCase().includes(cityLower.replace(' ', ''))
+          
+          if (!isInCity) {
+            console.log(`📍 Place "${businessName}" not in ${city}, checking next result...`)
+            continue
           }
+          
+          // Step 2b: Relevance validation
+          const isRelevant = checkBusinessRelevance(originalPlaceName, businessName, types, place.originalQuery || searchQuery)
+          
+          if (!isRelevant) {
+            continue
+          }
+          
+          // Step 2c: Check for duplicates
+          const placeKey = `${businessName}|${address}`
+          if (seenPlaces.has(placeKey)) {
+            console.log(`🔄 Duplicate detected: ${businessName}, skipping`)
+            continue
+          }
+          
+          candidate = result
+          seenPlaces.add(placeKey)
+          break // Found a good match, stop searching
         }
-      }
-    } catch (error) {
-      if (error.name === 'AbortError') {
-        console.log(`⏰ Google Places API timeout for ${place.name}`)
+
+        if (candidate) {
+          // Step 3: Get place photo (with fallback)
+          let imageUrl = getUnsplashImage('restaurant', index) // Default fallback
+          
+          if (candidate.photos && candidate.photos.length > 0) {
+            const photoReference = candidate.photos[0].photo_reference
+            imageUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=800&photoreference=${photoReference}&key=${process.env.GOOGLE_MAPS_API_KEY}`
+          }
+
+          // Step 4: Create enriched place object
+          const enrichedPlace: QlooPlace = {
+            id: place.id || `google-${candidate.place_id}`,
+            name: candidate.name,
+            address: candidate.formatted_address,
+            rating: candidate.rating || 4.0,
+            explanation: place.explanation || 'Great place matching your taste',
+            image: imageUrl,
+            originalQuery: place.originalQuery || 'restaurants'
+          }
+
+          validatedPlaces.push(enrichedPlace)
+          console.log(`✅ Validated: ${candidate.name} in ${city}`)
+        } else {
+          console.log(`❌ Place ${place.name} not in ${city}, skipping`)
+        }
       } else {
-        console.log(`❌ Error validating ${place.name}:`, error.message)
+        console.log(`❌ No Google Places results for: ${place.name}`)
       }
-      continue // Skip this place and try the next one
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log(`⏱️ Timeout validating ${place.name}, skipping`)
+      } else {
+        console.log(`❌ Error validating ${place.name}: ${error.message}`)
+      }
+      continue // Continue to next place on error
+    }
+    
+    // Add small delay to avoid rate limiting, but only if we're not at the limit
+    if (index < maxPlacesToCheck - 1 && validatedPlaces.length < targetPlaces) {
+      await new Promise(resolve => setTimeout(resolve, 100)) // Reduce from 200ms to 100ms
     }
   }
 
@@ -516,11 +711,28 @@ const generateExplanation = async (originalQuery: string, place: any): Promise<s
         messages: [
           {
             role: 'system',
-            content: `You are a local food expert. Generate a personalized explanation (1-2 sentences) for why this place matches the user's taste query. Focus on specific aspects like cuisine type, atmosphere, cultural elements, ingredients, cooking style, or dining experience that align with their preferences. Be specific and engaging, avoiding generic phrases.`
+            content: `You are a local expert. Generate a personalized explanation (1-2 sentences) for why this place matches the user's query.
+
+CRITICAL ANTI-HALLUCINATION RULES:
+1. NEVER claim a business offers services/products that aren't clearly indicated in its name
+2. NEVER invent specialties, cuisine types, or amenities not obviously present
+3. If the business name doesn't clearly indicate it matches the query, focus on:
+   - General atmosphere and ambiance
+   - Location and accessibility 
+   - Likely experience style (casual, upscale, cozy, etc.)
+   - Cultural area or neighborhood vibe
+
+EXAMPLES OF WHAT TO AVOID:
+- Don't claim "Owl Cafe" serves Vietnamese food
+- Don't claim "Shisha Bar" has Vietnamese cuisine
+- Don't claim a generic cafe specializes in something specific
+- Don't invent amenities, services, or specialties
+
+BE HONEST about uncertainty. If unclear, focus on atmosphere and general appeal.`
           },
           {
             role: 'user',
-            content: `The user wants "${originalQuery}" and you're recommending "${place.name}". Explain specifically why this place matches their taste - what makes it perfect for someone with this preference? Focus on taste, atmosphere, style, or cultural similarities.`
+            content: `The user wants "${originalQuery}" and you're recommending "${place.name}". Explain why this place might appeal to someone with this preference, being EXTREMELY careful not to invent connections that aren't clearly supported by the business name. Focus on atmosphere, location, or general dining experience.`
           }
         ],
         max_tokens: 80,
